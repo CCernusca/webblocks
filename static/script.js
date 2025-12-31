@@ -8,224 +8,261 @@ let edges = [];
 let pointColor = '#0000ff';
 let strokeColor = '#00ff00';
 
-// --- Camera / View settings (new) ---
+// --- Camera / View ---
 const view = {
-    x: 0,       // camera/world x
-    y: 0,       // camera/world y
-    z: 0,       // camera/world z
-    angleX: 0,  // camera pitch (degrees)
-    angleY: 0,  // camera yaw (degrees)
-    angleZ: 0,  // camera roll (degrees)
-    fov: 90     // vertical field-of-view in degrees
+    x: 0,
+    y: 0,
+    z: 0,
+    fov: 90,
+    // orientation basis vectors
+    forward: [0, 0, 1],
+    right: [1, 0, 0],
+    up: [0, 1, 0]
 };
-// ------------------------------------------------
 
+// ------------------------------------------------
+// Canvas setup
+// ------------------------------------------------
 function resizeCanvas() {
     const size = Math.min(window.innerWidth, window.innerHeight);
     canvas.width = size;
     canvas.height = size;
-    if (points3D.length > 0) {
-        render();
-    }
+    if (points3D.length > 0) render();
 }
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
-// Fetch 3D points from Flask backend
+// ------------------------------------------------
+// Fetch 3D data
+// ------------------------------------------------
 fetch('/api/points')
     .then(res => res.json())
-    .then(data => {
-        points3D = data.points;
-    });
+    .then(data => { points3D = data.points; });
 
-// Fetch edges from Flask backend
 fetch('/api/edges')
     .then(res => res.json())
-    .then(data => {
-        edges = data.edges;
-        render();
-    });
+    .then(data => { edges = data.edges; render(); });
 
-// Rotation matrix functions (object and camera rotations reuse these)
-function rotateX(point, angle) {
-    const rad = angle * Math.PI / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
+// ------------------------------------------------
+// Rotation & vector helpers
+// ------------------------------------------------
+function normalize(v) {
+    const len = Math.hypot(v[0], v[1], v[2]) || 1;
+    return [v[0]/len, v[1]/len, v[2]/len];
+}
+
+function cross(a,b) {
     return [
-        point[0],
-        point[1] * cos - point[2] * sin,
-        point[1] * sin + point[2] * cos
+        a[1]*b[2]-a[2]*b[1],
+        a[2]*b[0]-a[0]*b[2],
+        a[0]*b[1]-a[1]*b[0]
     ];
 }
 
-function rotateY(point, angle) {
-    const rad = angle * Math.PI / 180;
+function rotateAroundAxis(v, axis, angleDeg) {
+    const rad = angleDeg*Math.PI/180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
+    const dot = v[0]*axis[0]+v[1]*axis[1]+v[2]*axis[2];
+    const crossProd = cross(axis,v);
     return [
-        point[0] * cos + point[2] * sin,
-        point[1],
-        -point[0] * sin + point[2] * cos
+        v[0]*cos + crossProd[0]*sin + axis[0]*dot*(1-cos),
+        v[1]*cos + crossProd[1]*sin + axis[1]*dot*(1-cos),
+        v[2]*cos + crossProd[2]*sin + axis[2]*dot*(1-cos)
     ];
 }
 
-function rotateZ(point, angle) {
-    const rad = angle * Math.PI / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-    return [
-        point[0] * cos - point[1] * sin,
-        point[0] * sin + point[1] * cos,
-        point[2]
-    ];
-}
-
-// Project 3D point (in camera space) to normalized device coordinates [-1, 1]
+// ------------------------------------------------
+// Project 3D -> 2D
+// ------------------------------------------------
 function projectCameraSpace(camPoint) {
-    // camPoint is [x,y,z] in camera coordinates (camera looks along +z)
     const eps = 1e-4;
     const z = camPoint[2] <= eps ? eps : camPoint[2];
-
-    // compute focal length from vertical FOV and canvas height
-    const fovRad = view.fov * Math.PI / 180;
-    const focal = (canvas.height / 2) / Math.tan(fovRad / 2); // in pixels
-
-    // projection to pixel coordinates (centered at 0,0)
-    const xPixel = (camPoint[0] * focal) / z;
-    const yPixel = (camPoint[1] * focal) / z;
-
-    // convert to normalized device coords [-1, 1] (for reuse with your screen() helper)
-    const xNDC = xPixel / (canvas.width / 2);
-    const yNDC = yPixel / (canvas.height / 2);
-
-    return { ndc: [xNDC, yNDC], z: z };
+    const fovRad = view.fov * Math.PI/180;
+    const focal = (canvas.height/2)/Math.tan(fovRad/2);
+    const xPixel = (camPoint[0]*focal)/z;
+    const yPixel = (camPoint[1]*focal)/z;
+    return { ndc: [xPixel/(canvas.width/2), yPixel/(canvas.height/2)], z };
 }
 
-// Display projected (normalized) point correctly on screen
 function screen(pointNdc) {
-    // pointNdc is [xNDC, yNDC] in [-1,1] range
     return [
-        ((pointNdc[0] + 1) / 2) * canvas.width,
-        (1 - (pointNdc[1] + 1) / 2) * canvas.height
+        ((pointNdc[0]+1)/2)*canvas.width,
+        (1-(pointNdc[1]+1)/2)*canvas.height
     ];
 }
 
-// Convert hex color to rgba
 function hexToRgba(hex, alpha) {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    const r = parseInt(hex.slice(1,3),16);
+    const g = parseInt(hex.slice(3,5),16);
+    const b = parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${alpha})`;
 }
 
-// Render all points and edges (uses camera/view)
+// ------------------------------------------------
+// Rendering
+// ------------------------------------------------
 function render() {
-    if (!points3D || points3D.length === 0) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        return;
-    }
+    if (!points3D || points3D.length===0) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
     ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    // Compute camera-space position for each point:
-    // 1) apply object rotation (angleX/Y/Z)
-    // 2) translate into camera space (point - view.position)
-    // 3) rotate by negative camera angles (i.e. bring world into camera orientation)
     const cameraSpacePoints = points3D.map(pt => {
-        let p = [...pt];
-
-        // translate relative to camera position
-        let cx = p[0] - view.x;
-        let cy = p[1] - view.y;
-        let cz = p[2] - view.z;
-
-        // rotate by negative camera angles (camera orientation)
-        let cp = rotateX([cx, cy, cz], -view.angleX);
-        cp = rotateY(cp, -view.angleY);
-        cp = rotateZ(cp, -view.angleZ);
-
-        // NOTE: convention chosen: camera looks along positive Z in camera space.
-        return cp; // [x_cam, y_cam, z_cam]
+        const cx = pt[0]-view.x;
+        const cy = pt[1]-view.y;
+        const cz = pt[2]-view.z;
+        return [
+            cx*view.right[0] + cy*view.right[1] + cz*view.right[2],
+            cx*view.up[0]    + cy*view.up[1]    + cz*view.up[2],
+            cx*view.forward[0]+ cy*view.forward[1]+ cz*view.forward[2]
+        ];
     });
 
-    // Project each camera-space point to NDC and then to screen pixels
     const projected = cameraSpacePoints.map(cp => projectCameraSpace(cp));
     const pixelPoints = projected.map(p => screen(p.ndc));
 
-    // Sort indices by camera-space depth (z) descending so farther points are drawn first
     const sortedIndices = projected
-        .map((p, i) => ({ z: p.z, i }))
-        .sort((a, b) => b.z - a.z)
-        .map(x => x.i);
+        .map((p,i)=>({z:p.z,i}))
+        .sort((a,b)=>b.z-a.z)
+        .map(x=>x.i);
 
-    // Draw edges (use pixelPoints)
-    ctx.strokeStyle = hexToRgba(strokeColor, 0.6);
+    ctx.strokeStyle = hexToRgba(strokeColor,0.6);
     ctx.lineWidth = 2;
-    edges.forEach(edge => {
+    edges.forEach(edge=>{
         const p1 = pixelPoints[edge[0]];
         const p2 = pixelPoints[edge[1]];
-        // If either endpoint projects to NaN or outside reasonable z, skip
-        if (!p1 || !p2 || !isFinite(p1[0]) || !isFinite(p2[0])) return;
+        if(!p1||!p2||!isFinite(p1[0])||!isFinite(p2[0])) return;
         ctx.beginPath();
-        ctx.moveTo(p1[0], p1[1]);
-        ctx.lineTo(p2[0], p2[1]);
+        ctx.moveTo(p1[0],p1[1]);
+        ctx.lineTo(p2[0],p2[1]);
         ctx.stroke();
     });
 
-    // Draw points in depth-sorted order
     ctx.fillStyle = pointColor;
-    const size = 8;
-    for (let k = 0; k < sortedIndices.length; k++) {
-        const idx = sortedIndices[k];
+    const size=8;
+    for(const idx of sortedIndices){
         const p = pixelPoints[idx];
-        if (!p || !isFinite(p[0]) || !isFinite(p[1])) continue;
+        if(!p||!isFinite(p[0])||!isFinite(p[1])) continue;
         ctx.beginPath();
-        ctx.arc(p[0], p[1], size, 0, Math.PI * 2);
+        ctx.arc(p[0],p[1],size,0,Math.PI*2);
         ctx.fill();
     }
 }
 
-// Event listeners for color pickers
-pointColorPicker.addEventListener('input', (e) => {
-    pointColor = e.target.value;
-    render();
+// ------------------------------------------------
+// Color pickers
+// ------------------------------------------------
+pointColorPicker.addEventListener('input',e=>{
+    pointColor = e.target.value; render();
+});
+strokeColorPicker.addEventListener('input',e=>{
+    strokeColor = e.target.value; render();
 });
 
-strokeColorPicker.addEventListener('input', (e) => {
-    strokeColor = e.target.value;
-    render();
-});
+// ------------------------------------------------
+// Keyboard input
+// ------------------------------------------------
+const keys = {};
+const BASE_MOVE_SPEED = 100;   // default movement speed
+const BASE_ROTATE_SPEED = 90;  // default rotation speed in deg/sec
 
-// --- Utility API to change camera/view at runtime ---
-// Call these from your other code / devtools, then call render().
+window.addEventListener('keydown',e=>keys[e.code]=true);
+window.addEventListener('keyup',e=>keys[e.code]=false);
 
-function setViewPosition(x, y, z) {
-    view.x = x;
-    view.y = y;
-    view.z = z;
-    render();
+// Rotate camera around local axes
+function updateCameraRotation(rotDelta){
+    let rotated=false;
+
+    // Yaw (A/D)
+    if(keys['KeyA']){
+        view.forward = rotateAroundAxis(view.forward, view.up, rotDelta);
+        view.right   = rotateAroundAxis(view.right, view.up, rotDelta);
+        rotated=true;
+    }
+    if(keys['KeyD']){
+        view.forward = rotateAroundAxis(view.forward, view.up, -rotDelta);
+        view.right   = rotateAroundAxis(view.right, view.up, -rotDelta);
+        rotated=true;
+    }
+
+    // Pitch (W/S)
+    if(keys['KeyW']){
+        view.forward = rotateAroundAxis(view.forward, view.right, rotDelta);
+        view.up      = rotateAroundAxis(view.up, view.right, rotDelta);
+        rotated=true;
+    }
+    if(keys['KeyS']){
+        view.forward = rotateAroundAxis(view.forward, view.right, -rotDelta);
+        view.up      = rotateAroundAxis(view.up, view.right, -rotDelta);
+        rotated=true;
+    }
+
+    // Roll (Q/E)
+    if(keys['KeyE']){
+        view.right = rotateAroundAxis(view.right, view.forward, -rotDelta);
+        view.up    = rotateAroundAxis(view.up, view.forward, -rotDelta);
+        rotated=true;
+    }
+    if(keys['KeyQ']){
+        view.right = rotateAroundAxis(view.right, view.forward, rotDelta);
+        view.up    = rotateAroundAxis(view.up, view.forward, rotDelta);
+        rotated=true;
+    }
+
+    if(rotated){
+        // Orthonormalize
+        view.forward = normalize(view.forward);
+        view.right   = normalize(cross(view.forward, view.up));
+        view.up      = normalize(cross(view.right, view.forward));
+    }
+
+    return rotated;
 }
 
-function setViewAngles(ax, ay, az) {
-    view.angleX = ax;
-    view.angleY = ay;
-    view.angleZ = az;
-    render();
+// Update movement & rotation
+let lastTime = performance.now();
+function updateCamera(time){
+    const deltaTime = (time - lastTime)/1000;
+    lastTime = time;
+
+    // Apply Left Ctrl modifier for both movement and rotation
+    let speedMultiplier = keys['ControlLeft'] ? 10 : 1;
+
+    const moveSpeed = BASE_MOVE_SPEED * speedMultiplier;
+    const rotSpeed  = BASE_ROTATE_SPEED * speedMultiplier;
+
+    const speed = moveSpeed * deltaTime;
+    const rotDelta = rotSpeed * deltaTime;
+
+    const {forward, right, up} = view;
+    let moved=false;
+
+    // --- Movement ---
+    if(keys['ArrowUp'])   { view.x+=forward[0]*speed; view.y+=forward[1]*speed; view.z+=forward[2]*speed; moved=true; }
+    if(keys['ArrowDown']) { view.x-=forward[0]*speed; view.y-=forward[1]*speed; view.z-=forward[2]*speed; moved=true; }
+    if(keys['ArrowLeft']) { view.x-=right[0]*speed;   view.y-=right[1]*speed;   view.z-=right[2]*speed; moved=true; }
+    if(keys['ArrowRight']){ view.x+=right[0]*speed;   view.y+=right[1]*speed;   view.z+=right[2]*speed; moved=true; }
+    if(keys['Space'])     { view.x+=up[0]*speed;      view.y+=up[1]*speed;      view.z+=up[2]*speed; moved=true; }
+    if(keys['ShiftLeft']) { view.x-=up[0]*speed;      view.y-=up[1]*speed;      view.z-=up[2]*speed; moved=true; }
+
+    // --- Rotation ---
+    const rotated = updateCameraRotation(rotDelta);
+
+    if(moved || rotated) render();
+    requestAnimationFrame(updateCamera);
 }
 
-function setFov(deg) {
-    view.fov = deg;
-    render();
-}
+// Start loop
+requestAnimationFrame(updateCamera);
 
-// expose to window for quick debugging
-window.setViewPosition = setViewPosition;
-window.setViewAngles = setViewAngles;
-window.setFov = setFov;
-window.view = view;
-window.objectAngles = { get angleX() { return angleX; }, get angleY() { return angleY; }, get angleZ() { return angleZ; } };
+// ------------------------------------------------
+// Expose utility functions
+// ------------------------------------------------
+function setViewPosition(x,y,z){ view.x=x; view.y=y; view.z=z; render(); }
+function setFov(deg){ view.fov=deg; render(); }
+window.setViewPosition=setViewPosition;
+window.setFov=setFov;
 
-// initial render if we already loaded edges/points
 render();
