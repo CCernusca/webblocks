@@ -7,24 +7,17 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div class="container">
-        <h1>3D Point Projection</h1>
-        <div class="controls">
-            <label>
-                Rotation X: <span id="rotx-value">0</span>°
-                <input type="range" id="rot-x" min="0" max="360" value="0">
-            </label>
-            <label>
-                Rotation Y: <span id="roty-value">0</span>°
-                <input type="range" id="rot-y" min="0" max="360" value="0">
-            </label>
-            <label>
-                Rotation Z: <span id="rotz-value">0</span>°
-                <input type="range" id="rot-z" min="0" max="360" value="0">
-            </label>
+    <div class="color-picker-panel">
+        <div class="color-control">
+            <label for="point-color">Points:</label>
+            <input type="color" id="point-color" value="#0000ff">
         </div>
-        <canvas id="canvas"></canvas>
+        <div class="color-control">
+            <label for="stroke-color">Strokes:</label>
+            <input type="color" id="stroke-color" value="#00ff00">
+        </div>
     </div>
+    <canvas id="canvas"></canvas>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

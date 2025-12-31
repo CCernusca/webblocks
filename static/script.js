@@ -1,21 +1,23 @@
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-const rotXSlider = document.getElementById('rot-x');
-const rotYSlider = document.getElementById('rot-y');
-const rotZSlider = document.getElementById('rot-z');
-const rotXValue = document.getElementById('rotx-value');
-const rotYValue = document.getElementById('roty-value');
-const rotZValue = document.getElementById('rotz-value');
+const pointColorPicker = document.getElementById('point-color');
+const strokeColorPicker = document.getElementById('stroke-color');
 
 let points3D = [];
 let angleX = 0;
 let angleY = 0;
 let angleZ = 0;
+let pointColor = '#0000ff';
+let strokeColor = '#00ff00';
 
-// Set canvas size
+// Set canvas size to be square and as large as possible
 function resizeCanvas() {
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+    const size = Math.min(window.innerWidth, window.innerHeight);
+    canvas.width = size;
+    canvas.height = size;
+    if (points3D.length > 0) {
+        render();
+    }
 }
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
@@ -64,19 +66,33 @@ function rotateZ(point, angle) {
 
 // Project 3D point to 2D
 function project(point) {
-    const distance = 500;
-    const z = point[2] + distance;
-    const scale = distance / z;
     return [
-        point[0] * scale + canvas.width / 2,
-        point[1] * scale + canvas.height / 2,
-        z
+        point[0] / point[2],
+        point[1] / point[2]
     ];
+}
+
+// Display projected point correctly on screen
+function screen(point) {
+    return [
+        ((point[0] + 1) / 2) * canvas.width,
+        (1 - (point[1] + 1) / 2) * canvas.height
+    ]
+}
+
+// Convert hex color to rgba
+function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 // Render all points
 function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     const projectedPoints = points3D.map(point => {
         let p = [...point];
@@ -85,9 +101,15 @@ function render() {
         p = rotateZ(p, angleZ);
         return project(p);
     });
+
+    const screenedPoints = projectedPoints.map(point => {
+        let p = [...point];
+        p = screen(p);
+        return p;
+    })
     
     // Sort by z-depth for proper rendering
-    const sortedPoints = projectedPoints
+    const sortedPoints = screenedPoints
         .map((p, i) => ({x: p[0], y: p[1], z: p[2], idx: i}))
         .sort((a, b) => b.z - a.z);
     
@@ -98,11 +120,11 @@ function render() {
         [0, 4], [1, 5], [2, 6], [3, 7]  // connecting edges
     ];
     
-    ctx.strokeStyle = 'rgba(102, 126, 234, 0.3)';
+    ctx.strokeStyle = hexToRgba(strokeColor, 0.6);
     ctx.lineWidth = 2;
     edges.forEach(edge => {
-        const p1 = projectedPoints[edge[0]];
-        const p2 = projectedPoints[edge[1]];
+        const p1 = screenedPoints[edge[0]];
+        const p2 = screenedPoints[edge[1]];
         ctx.beginPath();
         ctx.moveTo(p1[0], p1[1]);
         ctx.lineTo(p2[0], p2[1]);
@@ -112,33 +134,20 @@ function render() {
     // Draw points
     sortedPoints.forEach(p => {
         const size = 8;
-        const opacity = Math.max(0.3, 1 - (1000 - p.z) / 1000);
-        ctx.fillStyle = `rgba(102, 126, 234, ${opacity})`;
+        ctx.fillStyle = pointColor;
         ctx.beginPath();
         ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
         ctx.fill();
-        
-        ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
-        ctx.lineWidth = 2;
-        ctx.stroke();
     });
 }
 
-// Event listeners for sliders
-rotXSlider.addEventListener('input', (e) => {
-    angleX = parseFloat(e.target.value);
-    rotXValue.textContent = angleX;
+// Event listeners for color pickers
+pointColorPicker.addEventListener('input', (e) => {
+    pointColor = e.target.value;
     render();
 });
 
-rotYSlider.addEventListener('input', (e) => {
-    angleY = parseFloat(e.target.value);
-    rotYValue.textContent = angleY;
-    render();
-});
-
-rotZSlider.addEventListener('input', (e) => {
-    angleZ = parseFloat(e.target.value);
-    rotZValue.textContent = angleZ;
+strokeColorPicker.addEventListener('input', (e) => {
+    strokeColor = e.target.value;
     render();
 });

@@ -6,11 +6,11 @@ app = Flask(__name__)
 # Generate sample 3D points (a cube)
 def generate_cube_points():
     points = []
-    size = 100
+    size = 50
     for x in [-size, size]:
         for y in [-size, size]:
             for z in [-size, size]:
-                points.append([x, y, z])
+                points.append([x, y, z + 500])
     return points
 
 @app.route('/')
