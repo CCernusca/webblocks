@@ -16,6 +16,27 @@
             <label for="stroke-color">Strokes:</label>
             <input type="color" id="stroke-color" value="#00ff00">
         </div>
+        <div class="visibility-info">
+            <div class="visibility-text">Visibility:</div>
+            <div class="visibility-status">
+                <div class="visibility-item">
+                    <span class="visibility-key">Points</span>: <span id="points-status" class="visibility-value">ON</span>
+                </div>
+                <div class="visibility-item">
+                    <span class="visibility-key">Edges</span>: <span id="edges-status" class="visibility-value">ON</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="position-panel">
+        <div class="position-info">
+            <div class="position-text">Position:</div>
+            <div id="position-display" class="position-values">0, 0, 0</div>
+        </div>
+        <div class="rotation-info">
+            <div class="rotation-text">Direction:</div>
+            <canvas id="rotation-canvas" width="80" height="80"></canvas>
+        </div>
     </div>
     <canvas id="canvas"></canvas>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
