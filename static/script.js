@@ -8,6 +8,9 @@ let edges = [];
 let pointColor = '#0000ff';
 let strokeColor = '#00ff00';
 
+// Structure cache to avoid re-fetching
+const structureCache = new Map();
+
 // --- Camera / View ---
 const view = {
     x: 0,
@@ -33,15 +36,109 @@ resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
 // ------------------------------------------------
-// Fetch 3D data
+// World and structure loading
 // ------------------------------------------------
-fetch('/api/points')
-    .then(res => res.json())
-    .then(data => { points3D = data.points; });
+function parseWorldPosition(key) {
+    const parts = key.split(',').map(part => part.trim());
+    if (parts.length !== 3) {
+        console.warn(`Invalid world position format: "${key}". Expected "x,y,z" format.`);
+        return null;
+    }
+    
+    const coords = parts.map(part => {
+        const num = parseInt(part, 10);
+        if (isNaN(num)) {
+            console.warn(`Invalid coordinate in world position "${key}": "${part}" is not a valid integer.`);
+            return null;
+        }
+        return num;
+    });
+    
+    if (coords.includes(null)) {
+        return null;
+    }
+    
+    return { x: coords[0], y: coords[1], z: coords[2] };
+}
 
-fetch('/api/edges')
-    .then(res => res.json())
-    .then(data => { edges = data.edges; render(); });
+function loadWorld() {
+    fetch('/api/world')
+        .then(res => res.json())
+        .then(worldData => {
+            if (worldData.error) {
+                console.error('Error loading world:', worldData.error);
+                return;
+            }
+            
+            // Clear existing data
+            points3D = [];
+            edges = [];
+            
+            const loadPromises = [];
+            
+            // Load each structure in the world
+            for (const [worldPos, structureName] of Object.entries(worldData)) {
+                if (!structureCache.has(structureName)) {
+                    loadPromises.push(
+                        fetch(`/api/structure/${structureName}`)
+                            .then(res => res.json())
+                            .then(structureData => {
+                                if (structureData.error) {
+                                    console.error(`Error loading structure "${structureName}":`, structureData.error);
+                                    return;
+                                }
+                                structureCache.set(structureName, structureData);
+                            })
+                            .catch(err => console.error(`Failed to fetch structure "${structureName}":`, err))
+                    );
+                }
+            }
+            
+            // After all structures are loaded, build the world
+            Promise.all(loadPromises).then(() => {
+                buildWorld(worldData);
+                render();
+            });
+        })
+        .catch(err => console.error('Failed to fetch world:', err));
+}
+
+function buildWorld(worldData) {
+    let pointOffset = 0;
+    
+    for (const [worldPosKey, structureName] of Object.entries(worldData)) {
+        const structureData = structureCache.get(structureName);
+        if (!structureData) continue;
+        
+        const worldPos = parseWorldPosition(worldPosKey);
+        if (!worldPos) {
+            console.warn(`Skipping structure "${structureName}" at invalid position "${worldPosKey}"`);
+            continue;
+        }
+        
+        // Add points with world position offset (multiplied by 100)
+        for (const point of structureData.points) {
+            points3D.push([
+                point[0] + (worldPos.x * 100),
+                point[1] + (worldPos.y * 100),
+                point[2] + (worldPos.z * 100)
+            ]);
+        }
+        
+        // Add edges with point offset
+        for (const edge of structureData.edges) {
+            edges.push([
+                edge[0] + pointOffset,
+                edge[1] + pointOffset
+            ]);
+        }
+        
+        pointOffset += structureData.points.length;
+    }
+}
+
+// Load the world on start
+loadWorld();
 
 // ------------------------------------------------
 // Rotation & vector helpers
