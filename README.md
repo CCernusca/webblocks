@@ -8,16 +8,22 @@ This is a little project which experiments with the rendering of and interaction
 - Projecting 3D structures to a 2D plane without libraries
 - Structures refer to groups of points connected by edges (wireframes)
 - Color selection for rendering details
-- Color selection for rendering details
 - POV Camera with full 6-DOF movement
 - Movement (Translation) is controlled using the arrow keys, space and left shift.
 - Rotation (Rotation) is controlled using the WASD keys, Q and E.
 - Ctrl can be pressed to increase the speed of movement and rotation.
+- World data (positions of structures) is loaded from a JSON file.
+- Structure data (points and edges defining structures) is loaded from a JSON file.
+- Visibility of points and edges can be toggled using M and N.
+- Alt can be pressed to snap the camera to the grid of the world.
+- While Alt is pressed, movement is restricted to the grid of the world.
+- Visibility toggles are displayed in the top left corner.
+- The camera's position and rotation are displayed in the top right corner.
 - More to come...
 
 ## Showcase
 
-![Screenshot of the current state of the project](assets/showcase/image.png)
+![Screenshot of the current state of the project](assets/showcase/showcase-controls-update.png)
 
 ## Installation
 
