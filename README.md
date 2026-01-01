@@ -7,11 +7,16 @@ This is a little project which experiments with the rendering of and interaction
 - Hosting a website using Python and Flask
 - Projecting 3D structures to a 2D plane without libraries
 - Structures refer to groups of points connected by edges (wireframes)
+- Color selection for rendering details
 - POV Camera with full 6-DOF movement
 - Movement (Translation) is controlled using the arrow keys, space and left shift.
 - Rotation (Rotation) is controlled using the WASD keys, Q and E.
 - Ctrl can be pressed to increase the speed of movement and rotation.
 - More to come...
+
+## Showcase
+
+![Screenshot of the current state of the project](assets/showcase/image.png)
 
 ## Installation
 
