@@ -11,6 +11,16 @@ let strokeColor = '#00ff00';
 // Structure cache to avoid re-fetching
 const structureCache = new Map();
 
+// World structures map - stores structure types at world positions
+// Format: "x,y,z" -> "structureName"
+const worldStructureMap = new Map();
+
+// Selected structure for placement (default: "cube")
+let selectedStructure = "cube";
+
+// Gravity state
+let gravityEnabled = false;
+
 // --- Camera / View ---
 const view = {
     x: 0,
@@ -104,6 +114,9 @@ function loadWorld() {
 }
 
 function buildWorld(worldData) {
+    // Clear previous world structures map
+    worldStructureMap.clear();
+    
     let pointOffset = 0;
     
     for (const [worldPosKey, structureName] of Object.entries(worldData)) {
@@ -116,7 +129,113 @@ function buildWorld(worldData) {
             continue;
         }
         
+        // Store structure type at world position
+        worldStructureMap.set(worldPosKey, structureName);
+        
         // Add points with world position offset (multiplied by 100)
+        for (const point of structureData.points) {
+            points3D.push([
+                point[0] + (worldPos.x * 100),
+                point[1] + (worldPos.y * 100),
+                point[2] + (worldPos.z * 100)
+            ]);
+        }
+        
+        // Add edges with point offset
+        for (const edge of structureData.edges) {
+            edges.push([
+                edge[0] + pointOffset,
+                edge[1] + pointOffset
+            ]);
+        }
+        
+        pointOffset += structureData.points.length;
+    }
+}
+
+// Add a structure at a specific world position
+function addStructure(worldPos, structureName) {
+    const posKey = `${worldPos.x},${worldPos.y},${worldPos.z}`;
+    
+    // Check if position is already occupied
+    if (worldStructureMap.has(posKey)) {
+        console.warn(`Position ${posKey} is already occupied by ${worldStructureMap.get(posKey)}`);
+        return false;
+    }
+    
+    // Check if structure type exists
+    const structureData = structureCache.get(structureName);
+    if (!structureData) {
+        console.error(`Structure type "${structureName}" not found in cache`);
+        return false;
+    }
+    
+    // Store structure in world map
+    worldStructureMap.set(posKey, structureName);
+    
+    // Calculate point offset (current end of points array)
+    const pointOffset = points3D.length;
+    
+    // Add points with world position offset
+    for (const point of structureData.points) {
+        points3D.push([
+            point[0] + (worldPos.x * 100),
+            point[1] + (worldPos.y * 100),
+            point[2] + (worldPos.z * 100)
+        ]);
+    }
+    
+    // Add edges with point offset
+    for (const edge of structureData.edges) {
+        edges.push([
+            edge[0] + pointOffset,
+            edge[1] + pointOffset
+        ]);
+    }
+    
+    console.log(`Added ${structureName} at position ${posKey}`);
+    return true;
+}
+
+// Remove a structure at a specific world position
+function removeStructure(worldPos) {
+    const posKey = `${worldPos.x},${worldPos.y},${worldPos.z}`;
+    
+    // Check if position has a structure
+    const structureName = worldStructureMap.get(posKey);
+    if (!structureName) {
+        console.warn(`No structure found at position ${posKey}`);
+        return false;
+    }
+    
+    // Remove from world map
+    worldStructureMap.delete(posKey);
+    
+    // Rebuild the entire world (simpler than trying to remove specific points/edges)
+    // This ensures proper point offset handling
+    rebuildWorld();
+    
+    console.log(`Removed ${structureName} from position ${posKey}`);
+    return true;
+}
+
+// Rebuild the world from the worldStructureMap
+function rebuildWorld() {
+    // Clear points and edges
+    points3D.length = 0;
+    edges.length = 0;
+    
+    let pointOffset = 0;
+    
+    // Rebuild from world structure map
+    for (const [posKey, structureName] of worldStructureMap) {
+        const structureData = structureCache.get(structureName);
+        if (!structureData) continue;
+        
+        const worldPos = parseWorldPosition(posKey);
+        if (!worldPos) continue;
+        
+        // Add points with world position offset
         for (const point of structureData.points) {
             points3D.push([
                 point[0] + (worldPos.x * 100),
@@ -148,10 +267,17 @@ const rotationCanvas = document.getElementById('rotation-canvas');
 const rotationCtx = rotationCanvas.getContext('2d');
 const pointsStatus = document.getElementById('points-status');
 const edgesStatus = document.getElementById('edges-status');
+const interactiveStatus = document.getElementById('interactive-status');
 
 // Visibility state
 let pointsVisible = true;
 let edgesVisible = true;
+
+// Interactive mode state
+let interactiveMode = false;
+let mouseX = 0;
+let mouseY = 0;
+let isPointerLocked = false;
 
 function updatePositionDisplay() {
     const x = Math.round(view.x);
@@ -170,6 +296,21 @@ function updateVisibilityDisplay() {
     edgesStatus.className = edgesVisible ? 'visibility-value on' : 'visibility-value off';
 }
 
+function updateInteractiveDisplay() {
+    const modeStatus = document.getElementById('mode-status');
+    
+    if (interactiveMode) {
+        modeStatus.textContent = 'INTERACTIVE';
+        modeStatus.className = 'mode-value interactive';
+    } else if (altPressed) {
+        modeStatus.textContent = 'ALIGNED';
+        modeStatus.className = 'mode-value aligned';
+    } else {
+        modeStatus.textContent = 'NORMAL';
+        modeStatus.className = 'mode-value normal';
+    }
+}
+
 function togglePointsVisibility() {
     pointsVisible = !pointsVisible;
     updateVisibilityDisplay();
@@ -180,6 +321,50 @@ function toggleEdgesVisibility() {
     edgesVisible = !edgesVisible;
     updateVisibilityDisplay();
     render();
+}
+
+function toggleInteractiveMode() {
+    interactiveMode = !interactiveMode;
+    
+    // Make modes mutually exclusive - disable Alt mode when entering interactive
+    if (interactiveMode) {
+        altPressed = false;
+    }
+    
+    updateInteractiveDisplay();
+    
+    if (interactiveMode) {
+        // Enable pointer lock for mouse control
+        canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
+        canvas.requestPointerLock();
+        // Reset roll to 0 when entering interactive mode
+        resetRoll();
+    } else {
+        // Exit pointer lock
+        document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
+        document.exitPointerLock();
+    }
+}
+
+function resetRoll() {
+    // Reset roll to 0 by orthonormalizing with world up
+    const worldUp = [0, 1, 0];
+    const dotProduct = view.forward[0] * worldUp[0] + view.forward[1] * worldUp[1] + view.forward[2] * worldUp[2];
+    
+    if (Math.abs(dotProduct) > 0.99) {
+        // Forward is parallel to world up, use world forward as reference
+        const worldForward = [0, 0, 1];
+        view.right = cross(view.forward, worldForward);
+    } else {
+        view.right = cross(worldUp, view.forward);
+    }
+    
+    view.up = cross(view.forward, view.right);
+    
+    // Normalize all vectors
+    view.forward = normalize(view.forward);
+    view.right = normalize(view.right);
+    view.up = normalize(view.up);
 }
 
 function drawRotationArrow() {
@@ -327,6 +512,73 @@ function hexToRgba(hex, alpha) {
 // ------------------------------------------------
 // Rendering
 // ------------------------------------------------
+
+// Draw crosshair for interactive mode aiming
+function drawCrosshair() {
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const size = 20;
+    const thickness = 2;
+    const color = '#ffffffff'; // White for visibility
+    
+    ctx.strokeStyle = color;
+    ctx.lineWidth = thickness;
+    
+    // Draw horizontal line
+    ctx.beginPath();
+    ctx.moveTo(centerX - size, centerY);
+    ctx.lineTo(centerX + size, centerY);
+    ctx.stroke();
+    
+    // Draw vertical line
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - size);
+    ctx.lineTo(centerX, centerY + size);
+    ctx.stroke();
+    
+    // Draw center dot
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Optional: Draw corner brackets for better aiming reference
+    const bracketSize = 10;
+    const bracketGap = 5;
+    
+    // Top-left bracket
+    ctx.beginPath();
+    ctx.moveTo(centerX - size - bracketGap, centerY - size - bracketGap);
+    ctx.lineTo(centerX - size - bracketGap, centerY - size - bracketGap + bracketSize);
+    ctx.moveTo(centerX - size - bracketGap, centerY - size - bracketGap);
+    ctx.lineTo(centerX - size - bracketGap + bracketSize, centerY - size - bracketGap);
+    ctx.stroke();
+    
+    // Top-right bracket
+    ctx.beginPath();
+    ctx.moveTo(centerX + size + bracketGap, centerY - size - bracketGap);
+    ctx.lineTo(centerX + size + bracketGap, centerY - size - bracketGap + bracketSize);
+    ctx.moveTo(centerX + size + bracketGap, centerY - size - bracketGap);
+    ctx.lineTo(centerX + size + bracketGap - bracketSize, centerY - size - bracketGap);
+    ctx.stroke();
+    
+    // Bottom-left bracket
+    ctx.beginPath();
+    ctx.moveTo(centerX - size - bracketGap, centerY + size + bracketGap);
+    ctx.lineTo(centerX - size - bracketGap, centerY + size + bracketGap - bracketSize);
+    ctx.moveTo(centerX - size - bracketGap, centerY + size + bracketGap);
+    ctx.lineTo(centerX - size - bracketGap + bracketSize, centerY + size + bracketGap);
+    ctx.stroke();
+    
+    // Bottom-right bracket
+    ctx.beginPath();
+    ctx.moveTo(centerX + size + bracketGap, centerY + size + bracketGap);
+    ctx.lineTo(centerX + size + bracketGap, centerY + size + bracketGap - bracketSize);
+    ctx.moveTo(centerX + size + bracketGap, centerY + size + bracketGap);
+    ctx.lineTo(centerX + size + bracketGap - bracketSize, centerY + size + bracketGap);
+    ctx.stroke();
+}
+
 function render() {
     if (!points3D || points3D.length===0) return;
 
@@ -382,6 +634,11 @@ function render() {
         }
     }
     
+    // Draw crosshair in interactive mode
+    if (interactiveMode) {
+        drawCrosshair();
+    }
+    
     // Update position and rotation displays
     updatePositionDisplay();
     drawRotationArrow();
@@ -413,9 +670,16 @@ const ROTATION_SNAP = 90; // Rotation snap to 90 degrees
 
 window.addEventListener('keydown',e=>{
     keys[e.code]=true;
-    if(e.code === 'AltLeft' || e.code === 'AltRight') {
+    if(e.code === 'KeyV') {
+        // Make modes mutually exclusive - disable interactive mode when V is pressed
+        if (interactiveMode) {
+            interactiveMode = false;
+            document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
+            document.exitPointerLock();
+        }
         altPressed = true;
         snapToGrid();
+        updateInteractiveDisplay();
     }
     
     // Handle visibility toggles
@@ -426,28 +690,424 @@ window.addEventListener('keydown',e=>{
         toggleEdgesVisibility();
     }
     
+    // Handle interactive mode toggle
+    if(e.code === 'KeyC') {
+        toggleInteractiveMode();
+    }
+    
+    // Handle ESC key to exit interactive mode
+    if(e.code === 'Escape' && interactiveMode) {
+        interactiveMode = false;
+        document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
+        document.exitPointerLock();
+        updateInteractiveDisplay();
+    }
+    
+    // Handle number keys for structure selection
+    if(e.code.startsWith('Digit')) {
+        handleStructureSelection(e.code);
+    }
+    
+    // Handle gravity toggle
+    if(e.code === 'KeyG') {
+        toggleGravity();
+    }
+    
     // Prevent default browser behaviors for game controls
     if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 
-        'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 'ControlLeft', 
-        'KeyM', 'KeyN'].includes(e.code)) {
+        'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 
+        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'KeyG', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
+        'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'].includes(e.code)) {
         e.preventDefault();
     }
 });
 window.addEventListener('keyup',e=>{
     keys[e.code]=false;
-    if(e.code === 'AltLeft' || e.code === 'AltRight') {
+    if(e.code === 'KeyV') {
         altPressed = false;
+        updateInteractiveDisplay();
     }
     // Prevent default browser behaviors for game controls
     if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 
-        'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 'ControlLeft', 
-        'KeyM', 'KeyN'].includes(e.code)) {
+        'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 
+        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'KeyG', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
+        'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'].includes(e.code)) {
         e.preventDefault();
     }
 });
 
-// Initialize visibility display
+// Initialize visibility and interactive displays
 updateVisibilityDisplay();
+updateInteractiveDisplay();
+updateGravityDisplay();
+
+// Mouse event handlers for interactive mode
+document.addEventListener('pointerlockchange', () => {
+    isPointerLocked = document.pointerLockElement === canvas;
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (interactiveMode && isPointerLocked) {
+        // Apply Alt speed multiplier to mouse sensitivity
+        const speedMultiplier = keys['AltLeft'] || keys['AltRight'] ? 2 : 1;
+        const sensitivity = 0.1 * speedMultiplier;
+        const deltaYaw = e.movementX * sensitivity;
+        const deltaPitch = e.movementY * sensitivity;
+        
+        // Check pitch limits before applying pitch rotation
+        const currentPitch = Math.asin(-view.forward[1]) * 180 / Math.PI;
+        const maxPitch = 89;
+        const minPitch = -89;
+        
+        // Only apply pitch if within limits
+        let applyPitch = true;
+        if (deltaPitch > 0 && currentPitch >= maxPitch) {
+            applyPitch = false; // Trying to look up beyond limit
+        } else if (deltaPitch < 0 && currentPitch <= minPitch) {
+            applyPitch = false; // Trying to look down beyond limit
+        }
+        
+        // Apply yaw rotation using rotateAroundAxis (more reliable)
+        const yawedForward = rotateAroundAxis(view.forward, [0, 1, 0], deltaYaw);
+        const yawedRight = rotateAroundAxis(view.right, [0, 1, 0], deltaYaw);
+        const yawedUp = rotateAroundAxis(view.up, [0, 1, 0], deltaYaw);
+        
+        // Apply pitch rotation only if within limits
+        let finalForward = yawedForward;
+        let finalUp = yawedUp;
+        
+        if (applyPitch) {
+            finalForward = rotateAroundAxis(yawedForward, yawedRight, deltaPitch);
+            finalUp = rotateAroundAxis(yawedUp, yawedRight, deltaPitch);
+        }
+        
+        view.forward = finalForward;
+        view.up = finalUp;
+        view.right = yawedRight; // Keep the yawed right vector
+        
+        // No resetRoll needed - yaw+pitch sequence should be clean
+        render();
+    }
+});
+
+// Mouse click handler for structure removal/addition in interactive mode
+document.addEventListener('mousedown', (e) => {
+    if (interactiveMode && isPointerLocked) {
+        if (e.button === 0) { // Left mouse button - remove structure
+            performRaycast();
+        } else if (e.button === 2) { // Right mouse button - place structure
+            performRaycastPlace();
+        }
+    }
+});
+
+// Perform raycast and remove first intersected structure
+function performRaycast() {
+    const rayOrigin = [view.x, view.y, view.z];
+    const rayDirection = normalize(view.forward);
+    
+    let closestStructure = null;
+    let closestDistance = Infinity;
+    
+    // Check each structure in the world
+    for (const [posKey, structureName] of worldStructureMap) {
+        const worldPos = parseWorldPosition(posKey);
+        if (!worldPos) continue;
+        
+        const structureData = structureCache.get(structureName);
+        if (!structureData) continue;
+        
+        // Transform structure points to world space
+        const worldPoints = structureData.points.map(point => [
+            point[0] + (worldPos.x * 100),
+            point[1] + (worldPos.y * 100),
+            point[2] + (worldPos.z * 100)
+        ]);
+        
+        // Check ray-structure intersection (simplified bounding box check)
+        const intersection = rayIntersectStructure(rayOrigin, rayDirection, worldPoints, worldPos);
+        if (intersection && intersection.distance < closestDistance) {
+            closestDistance = intersection.distance;
+            closestStructure = worldPos;
+        }
+    }
+    
+    // Remove the closest structure if found
+    if (closestStructure) {
+        removeStructure(closestStructure);
+        render();
+        console.log(`Removed structure at ${closestStructure.x},${closestStructure.y},${closestStructure.z}`);
+    }
+}
+
+// Perform raycast and place structure on hit surface
+function performRaycastPlace() {
+    const rayOrigin = [view.x, view.y, view.z];
+    const rayDirection = normalize(view.forward);
+    
+    let closestStructure = null;
+    let closestDistance = Infinity;
+    let closestIntersection = null;
+    
+    // Check each structure in the world
+    for (const [posKey, structureName] of worldStructureMap) {
+        const worldPos = parseWorldPosition(posKey);
+        if (!worldPos) continue;
+        
+        const structureData = structureCache.get(structureName);
+        if (!structureData) continue;
+        
+        // Transform structure points to world space
+        const worldPoints = structureData.points.map(point => [
+            point[0] + (worldPos.x * 100),
+            point[1] + (worldPos.y * 100),
+            point[2] + (worldPos.z * 100)
+        ]);
+        
+        // Check ray-structure intersection with surface detection
+        const intersection = rayIntersectStructureWithSurface(rayOrigin, rayDirection, worldPoints, worldPos);
+        if (intersection && intersection.distance < closestDistance) {
+            closestDistance = intersection.distance;
+            closestStructure = worldPos;
+            closestIntersection = intersection;
+        }
+    }
+    
+    // Place structure at calculated position if surface was hit
+    if (closestStructure && closestIntersection) {
+        const placePosition = calculatePlacePosition(closestIntersection);
+        if (placePosition) {
+            const success = addStructure(placePosition, selectedStructure);
+            if (success) {
+                render();
+                console.log(`Placed ${selectedStructure} at ${placePosition.x},${placePosition.y},${placePosition.z}`);
+            }
+        }
+    }
+}
+
+// Ray-structure intersection with surface normal detection
+function rayIntersectStructureWithSurface(rayOrigin, rayDirection, worldPoints, worldPos) {
+    // First get basic AABB intersection
+    const basicIntersection = rayIntersectStructure(rayOrigin, rayDirection, worldPoints, worldPos);
+    if (!basicIntersection) return null;
+    
+    // Determine which face was hit by checking which axis is closest to the surface
+    const hitPoint = basicIntersection.point;
+    const structureCenter = [
+        worldPos.x * 100,
+        worldPos.y * 100,
+        worldPos.z * 100
+    ];
+    
+    // Calculate distances to each face center
+    const halfSize = 50; // Assuming structures are 100x100x100
+    
+    const faces = [
+        { normal: [1, 0, 0], center: [structureCenter[0] + halfSize, structureCenter[1], structureCenter[2]], direction: 'right' },
+        { normal: [-1, 0, 0], center: [structureCenter[0] - halfSize, structureCenter[1], structureCenter[2]], direction: 'left' },
+        { normal: [0, 1, 0], center: [structureCenter[0], structureCenter[1] + halfSize, structureCenter[2]], direction: 'up' },
+        { normal: [0, -1, 0], center: [structureCenter[0], structureCenter[1] - halfSize, structureCenter[2]], direction: 'down' },
+        { normal: [0, 0, 1], center: [structureCenter[0], structureCenter[1], structureCenter[2] + halfSize], direction: 'forward' },
+        { normal: [0, 0, -1], center: [structureCenter[0], structureCenter[1], structureCenter[2] - halfSize], direction: 'backward' }
+    ];
+    
+    let closestFace = null;
+    let minDistance = Infinity;
+    
+    for (const face of faces) {
+        const distance = Math.sqrt(
+            Math.pow(hitPoint[0] - face.center[0], 2) +
+            Math.pow(hitPoint[1] - face.center[1], 2) +
+            Math.pow(hitPoint[2] - face.center[2], 2)
+        );
+        if (distance < minDistance) {
+            minDistance = distance;
+            closestFace = face;
+        }
+    }
+    
+    return {
+        ...basicIntersection,
+        hitNormal: closestFace.normal,
+        hitDirection: closestFace.direction
+    };
+}
+
+// Calculate position to place new structure
+function calculatePlacePosition(intersection) {
+    const hitDirection = intersection.hitDirection;
+    const hitPoint = intersection.point;
+    
+    // Calculate grid position - for positive directions, don't add extra unit
+    let gridX = Math.round(hitPoint[0] / 100);
+    let gridY = Math.round(hitPoint[1] / 100);
+    let gridZ = Math.round(hitPoint[2] / 100);
+    
+    // Adjust based on hit direction
+    switch (hitDirection) {
+        case 'right':
+            // Don't add extra unit since we're already on the surface
+            break;
+        case 'left':
+            gridX -= 1;
+            break;
+        case 'up':
+            // Don't add extra unit since we're already on the surface
+            break;
+        case 'down':
+            gridY -= 1;
+            break;
+        case 'forward':
+            // Don't add extra unit since we're already on the surface
+            break;
+        case 'backward':
+            gridZ -= 1;
+            break;
+    }
+    
+    const placePosition = { x: gridX, y: gridY, z: gridZ };
+    
+    // Check if position is already occupied
+    const posKey = `${gridX},${gridY},${gridZ}`;
+    if (worldStructureMap.has(posKey)) {
+        console.log(`Position ${posKey} is already occupied`);
+        return null;
+    }
+    
+    return placePosition;
+}
+
+// Simple ray-structure intersection using bounding box
+function rayIntersectStructure(rayOrigin, rayDirection, worldPoints, worldPos) {
+    // Calculate bounding box
+    let min = [Infinity, Infinity, Infinity];
+    let max = [-Infinity, -Infinity, -Infinity];
+    
+    for (const point of worldPoints) {
+        for (let i = 0; i < 3; i++) {
+            min[i] = Math.min(min[i], point[i]);
+            max[i] = Math.max(max[i], point[i]);
+        }
+    }
+    
+    // Ray-AABB intersection
+    const tMin = [
+        (min[0] - rayOrigin[0]) / rayDirection[0],
+        (min[1] - rayOrigin[1]) / rayDirection[1],
+        (min[2] - rayOrigin[2]) / rayDirection[2]
+    ];
+    
+    const tMax = [
+        (max[0] - rayOrigin[0]) / rayDirection[0],
+        (max[1] - rayOrigin[1]) / rayDirection[1],
+        (max[2] - rayOrigin[2]) / rayDirection[2]
+    ];
+    
+    const t1 = [Math.min(tMin[0], tMax[0]), Math.min(tMin[1], tMax[1]), Math.min(tMin[2], tMax[2])];
+    const t2 = [Math.max(tMin[0], tMax[0]), Math.max(tMin[1], tMax[1]), Math.max(tMin[2], tMax[2])];
+    
+    const tNear = Math.max(t1[0], t1[1], t1[2]);
+    const tFar = Math.min(t2[0], t2[1], t2[2]);
+    
+    if (tNear > tFar || tFar < 0) {
+        return null; // No intersection
+    }
+    
+    return {
+        distance: tNear > 0 ? tNear : tFar,
+        point: [
+            rayOrigin[0] + rayDirection[0] * (tNear > 0 ? tNear : tFar),
+            rayOrigin[1] + rayDirection[1] * (tNear > 0 ? tNear : tFar),
+            rayOrigin[2] + rayDirection[2] * (tNear > 0 ? tNear : tFar)
+        ]
+    };
+}
+
+// Handle structure selection using number keys
+function handleStructureSelection(keyCode) {
+    // Get sorted list of structure names from cache
+    const structureNames = Array.from(structureCache.keys()).sort();
+    
+    // Extract number from key code
+    let number = parseInt(keyCode.replace('Digit', ''));
+    
+    // Handle 0 as index 10
+    if (number === 0) {
+        number = 10;
+    }
+    
+    // Check if number is within valid range (1-10)
+    if (number < 1 || number > structureNames.length) {
+        console.log(`Invalid structure index: ${number}. Available structures: 1-${structureNames.length}`);
+        return;
+    }
+    
+    // Select structure (1-based index)
+    const selectedIndex = number - 1;
+    selectedStructure = structureNames[selectedIndex];
+    
+    console.log(`Selected structure: ${selectedStructure} (index ${number})`);
+}
+
+// Toggle gravity on/off
+function toggleGravity() {
+    gravityEnabled = !gravityEnabled;
+    updateGravityDisplay();
+    console.log(`Gravity ${gravityEnabled ? 'enabled' : 'disabled'}`);
+}
+
+// Update gravity display
+function updateGravityDisplay() {
+    const gravityStatus = document.getElementById('gravity-status');
+    gravityStatus.textContent = gravityEnabled ? 'ON' : 'OFF';
+    gravityStatus.className = gravityEnabled ? 'gravity-value on' : 'gravity-value off';
+}
+
+// Check if position would collide with any structure
+function checkCollision(position) {
+    const playerRadius = 20; // Player collision radius in world units
+    
+    for (const [posKey, structureName] of worldStructureMap) {
+        const worldPos = parseWorldPosition(posKey);
+        if (!worldPos) continue;
+        
+        const structureData = structureCache.get(structureName);
+        if (!structureData) continue;
+        
+        // Transform structure points to world space
+        const worldPoints = structureData.points.map(point => [
+            point[0] + (worldPos.x * 100),
+            point[1] + (worldPos.y * 100),
+            point[2] + (worldPos.z * 100)
+        ]);
+        
+        // Calculate structure bounding box
+        let min = [Infinity, Infinity, Infinity];
+        let max = [-Infinity, -Infinity, -Infinity];
+        
+        for (const point of worldPoints) {
+            for (let i = 0; i < 3; i++) {
+                min[i] = Math.min(min[i], point[i]);
+                max[i] = Math.max(max[i], point[i]);
+            }
+        }
+        
+        // Expand bounding box by player radius
+        min[0] -= playerRadius; max[0] += playerRadius;
+        min[1] -= playerRadius; max[1] += playerRadius;
+        min[2] -= playerRadius; max[2] += playerRadius;
+        
+        // Check if player position is inside expanded bounding box
+        if (position[0] >= min[0] && position[0] <= max[0] &&
+            position[1] >= min[1] && position[1] <= max[1] &&
+            position[2] >= min[2] && position[2] <= max[2]) {
+            return true; // Collision detected
+        }
+    }
+    
+    return false; // No collision
+}
 
 // Function to snap position and rotation to grid
 function snapToGrid() {
@@ -548,11 +1208,11 @@ function updateCameraRotation(rotDelta){
 
             // Pitch (W/S)
             if(keys['KeyW']){
-                rotateByGrid(ROTATION_SNAP, 0, 0);
+                rotateByGrid(-ROTATION_SNAP, 0, 0);
                 rotated=true;
             }
             if(keys['KeyS']){
-                rotateByGrid(-ROTATION_SNAP, 0, 0);
+                rotateByGrid(ROTATION_SNAP, 0, 0);
                 rotated=true;
             }
 
@@ -626,20 +1286,24 @@ function rotateByGrid(pitch, yaw, roll) {
     
     if(pitch !== 0) {
         // Pitch 90° around world X axis
+        const pitchRad = pitch * Math.PI / 180;
+        const cosPitch = Math.cos(pitchRad);
+        const sinPitch = Math.sin(pitchRad);
+        
         const newForward = [
             view.forward[0],
-            view.forward[2] * Math.sin(pitch * Math.PI / 180) + view.forward[1] * Math.cos(pitch * Math.PI / 180),
-            view.forward[2] * Math.cos(pitch * Math.PI / 180) - view.forward[1] * Math.sin(pitch * Math.PI / 180)
+            view.forward[1] * cosPitch - view.forward[2] * sinPitch,
+            view.forward[1] * sinPitch + view.forward[2] * cosPitch
         ];
         const newUp = [
             view.up[0],
-            view.up[2] * Math.sin(pitch * Math.PI / 180) + view.up[1] * Math.cos(pitch * Math.PI / 180),
-            view.up[2] * Math.cos(pitch * Math.PI / 180) - view.up[1] * Math.sin(pitch * Math.PI / 180)
+            view.up[1] * cosPitch - view.up[2] * sinPitch,
+            view.up[1] * sinPitch + view.up[2] * cosPitch
         ];
         const newRight = [
             view.right[0],
-            view.right[2] * Math.sin(pitch * Math.PI / 180) + view.right[1] * Math.cos(pitch * Math.PI / 180),
-            view.right[2] * Math.cos(pitch * Math.PI / 180) - view.right[1] * Math.sin(pitch * Math.PI / 180)
+            view.right[1] * cosPitch - view.right[2] * sinPitch,
+            view.right[1] * sinPitch + view.right[2] * cosPitch
         ];
         
         view.forward = newForward;
@@ -705,8 +1369,8 @@ function updateCamera(time){
     const deltaTime = (time - lastTime)/1000;
     lastTime = time;
 
-    // Apply Left Ctrl modifier for both movement and rotation
-    let speedMultiplier = keys['ControlLeft'] ? 10 : 1;
+    // Apply Alt modifier for both movement and rotation
+    let speedMultiplier = keys['AltLeft'] || keys['AltRight'] ? 10 : 1;
 
     const moveSpeed = BASE_MOVE_SPEED * speedMultiplier;
     const rotSpeed  = BASE_ROTATE_SPEED * speedMultiplier;
@@ -736,6 +1400,94 @@ function updateCamera(time){
                 moved = true;
             }
         }
+    } else if(interactiveMode) {
+        // Interactive mode movement - WASD, Space, Shift with collision detection
+        // Use horizontal forward vector (ignore pitch for movement)
+        const horizontalForward = [view.forward[0], 0, view.forward[2]];
+        const normalizedForward = normalize(horizontalForward);
+        
+        // Pure vertical movement
+        const verticalUp = [0, 1, 0];
+        
+        // Calculate potential new positions
+        const currentPos = [view.x, view.y, view.z];
+        let newPos = [...currentPos];
+        
+        if(keys['KeyW'])     { newPos[0]+=normalizedForward[0]*speed; newPos[2]+=normalizedForward[2]*speed; }
+        if(keys['KeyS'])     { newPos[0]-=normalizedForward[0]*speed; newPos[2]-=normalizedForward[2]*speed; }
+        if(keys['KeyA'])     { newPos[0]-=right[0]*speed;   newPos[2]-=right[2]*speed; }
+        if(keys['KeyD'])     { newPos[0]+=right[0]*speed;   newPos[2]+=right[2]*speed; }
+        if(keys['Space'])    { newPos[0]+=verticalUp[0]*speed; newPos[1]+=verticalUp[1]*speed; newPos[2]+=verticalUp[2]*speed; }
+        if(keys['ShiftLeft']){ newPos[0]-=verticalUp[0]*speed; newPos[1]-=verticalUp[1]*speed; newPos[2]-=verticalUp[2]*speed; }
+        
+        // Check collision before applying movement
+        // Only check new position if current position is not colliding (prevents getting stuck)
+        const currentPosColliding = checkCollision(currentPos);
+        
+        if (!currentPosColliding) {
+            // Check each movement component separately
+            let movedX = false, movedY = false, movedZ = false;
+            
+            // Forward/Backward movement (XZ plane)
+            if(keys['KeyW'] || keys['KeyS']) {
+                const testPos = [...currentPos];
+                if(keys['KeyW']) {
+                    testPos[0] += normalizedForward[0]*speed;
+                    testPos[2] += normalizedForward[2]*speed;
+                }
+                if(keys['KeyS']) {
+                    testPos[0] -= normalizedForward[0]*speed;
+                    testPos[2] -= normalizedForward[2]*speed;
+                }
+                if (!checkCollision(testPos)) {
+                    view.x = testPos[0];
+                    view.z = testPos[2];
+                    movedX = true;
+                }
+            }
+            
+            // Left/Right movement (XZ plane)
+            if(keys['KeyA'] || keys['KeyD']) {
+                const testPos = [view.x, view.y, view.z]; // Use potentially updated position
+                if(keys['KeyA']) {
+                    testPos[0] -= right[0]*speed;
+                    testPos[2] -= right[2]*speed;
+                }
+                if(keys['KeyD']) {
+                    testPos[0] += right[0]*speed;
+                    testPos[2] += right[2]*speed;
+                }
+                if (!checkCollision(testPos)) {
+                    view.x = testPos[0];
+                    view.z = testPos[2];
+                    movedX = true;
+                }
+            }
+            
+            // Vertical movement (Y axis)
+            if(keys['Space'] || keys['ShiftLeft']) {
+                const testPos = [view.x, view.y, view.z]; // Use potentially updated position
+                if(keys['Space']) {
+                    testPos[1] += verticalUp[1]*speed;
+                }
+                if(keys['ShiftLeft']) {
+                    testPos[1] -= verticalUp[1]*speed;
+                }
+                if (!checkCollision(testPos)) {
+                    view.y = testPos[1];
+                    movedY = true;
+                }
+            }
+            
+            if (movedX || movedY) moved = true;
+        } else {
+            // If currently colliding, allow movement to try to escape
+            // This prevents getting permanently stuck
+            view.x = newPos[0];
+            view.y = newPos[1];
+            view.z = newPos[2];
+            moved = true;
+        }
     } else {
         // Normal movement
         if(keys['ArrowUp'])   { view.x+=forward[0]*speed; view.y+=forward[1]*speed; view.z+=forward[2]*speed; moved=true; }
@@ -746,8 +1498,25 @@ function updateCamera(time){
         if(keys['ShiftLeft']) { view.x-=up[0]*speed;      view.y-=up[1]*speed;      view.z-=up[2]*speed; moved=true; }
     }
 
+    // --- Gravity ---
+    if (gravityEnabled) {
+        const gravitySpeed = 200; // Gravity speed in world units per second
+        const gravityDelta = gravitySpeed * deltaTime;
+        
+        // Apply gravity as downward movement
+        const gravityTestPos = [view.x, view.y - gravityDelta, view.z];
+        
+        // Check collision for gravity
+        const currentPosColliding = checkCollision([view.x, view.y, view.z]);
+        if (!currentPosColliding && !checkCollision(gravityTestPos)) {
+            view.y -= gravityDelta;
+            moved = true;
+        }
+        // If colliding, don't apply gravity (player is on ground)
+    }
+
     // --- Rotation ---
-    const rotated = updateCameraRotation(rotDelta);
+    const rotated = interactiveMode ? false : updateCameraRotation(rotDelta);
 
     if(moved || rotated) render();
     requestAnimationFrame(updateCamera);
