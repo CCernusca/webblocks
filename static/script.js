@@ -506,6 +506,73 @@ function hexToRgba(hex, alpha) {
 // ------------------------------------------------
 // Rendering
 // ------------------------------------------------
+
+// Draw crosshair for interactive mode aiming
+function drawCrosshair() {
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const size = 20;
+    const thickness = 2;
+    const color = '#ffffffff'; // White for visibility
+    
+    ctx.strokeStyle = color;
+    ctx.lineWidth = thickness;
+    
+    // Draw horizontal line
+    ctx.beginPath();
+    ctx.moveTo(centerX - size, centerY);
+    ctx.lineTo(centerX + size, centerY);
+    ctx.stroke();
+    
+    // Draw vertical line
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - size);
+    ctx.lineTo(centerX, centerY + size);
+    ctx.stroke();
+    
+    // Draw center dot
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Optional: Draw corner brackets for better aiming reference
+    const bracketSize = 10;
+    const bracketGap = 5;
+    
+    // Top-left bracket
+    ctx.beginPath();
+    ctx.moveTo(centerX - size - bracketGap, centerY - size - bracketGap);
+    ctx.lineTo(centerX - size - bracketGap, centerY - size - bracketGap + bracketSize);
+    ctx.moveTo(centerX - size - bracketGap, centerY - size - bracketGap);
+    ctx.lineTo(centerX - size - bracketGap + bracketSize, centerY - size - bracketGap);
+    ctx.stroke();
+    
+    // Top-right bracket
+    ctx.beginPath();
+    ctx.moveTo(centerX + size + bracketGap, centerY - size - bracketGap);
+    ctx.lineTo(centerX + size + bracketGap, centerY - size - bracketGap + bracketSize);
+    ctx.moveTo(centerX + size + bracketGap, centerY - size - bracketGap);
+    ctx.lineTo(centerX + size + bracketGap - bracketSize, centerY - size - bracketGap);
+    ctx.stroke();
+    
+    // Bottom-left bracket
+    ctx.beginPath();
+    ctx.moveTo(centerX - size - bracketGap, centerY + size + bracketGap);
+    ctx.lineTo(centerX - size - bracketGap, centerY + size + bracketGap - bracketSize);
+    ctx.moveTo(centerX - size - bracketGap, centerY + size + bracketGap);
+    ctx.lineTo(centerX - size - bracketGap + bracketSize, centerY + size + bracketGap);
+    ctx.stroke();
+    
+    // Bottom-right bracket
+    ctx.beginPath();
+    ctx.moveTo(centerX + size + bracketGap, centerY + size + bracketGap);
+    ctx.lineTo(centerX + size + bracketGap, centerY + size + bracketGap - bracketSize);
+    ctx.moveTo(centerX + size + bracketGap, centerY + size + bracketGap);
+    ctx.lineTo(centerX + size + bracketGap - bracketSize, centerY + size + bracketGap);
+    ctx.stroke();
+}
+
 function render() {
     if (!points3D || points3D.length===0) return;
 
@@ -559,6 +626,11 @@ function render() {
             ctx.arc(p[0],p[1],size,0,Math.PI*2);
             ctx.fill();
         }
+    }
+    
+    // Draw crosshair in interactive mode
+    if (interactiveMode) {
+        drawCrosshair();
     }
     
     // Update position and rotation displays
@@ -680,6 +752,240 @@ document.addEventListener('mousemove', (e) => {
         render();
     }
 });
+
+// Mouse click handler for structure removal/addition in interactive mode
+document.addEventListener('mousedown', (e) => {
+    if (interactiveMode && isPointerLocked) {
+        if (e.button === 0) { // Left mouse button - remove structure
+            performRaycast();
+        } else if (e.button === 2) { // Right mouse button - place structure
+            performRaycastPlace();
+        }
+    }
+});
+
+// Perform raycast and remove first intersected structure
+function performRaycast() {
+    const rayOrigin = [view.x, view.y, view.z];
+    const rayDirection = normalize(view.forward);
+    
+    let closestStructure = null;
+    let closestDistance = Infinity;
+    
+    // Check each structure in the world
+    for (const [posKey, structureName] of worldStructureMap) {
+        const worldPos = parseWorldPosition(posKey);
+        if (!worldPos) continue;
+        
+        const structureData = structureCache.get(structureName);
+        if (!structureData) continue;
+        
+        // Transform structure points to world space
+        const worldPoints = structureData.points.map(point => [
+            point[0] + (worldPos.x * 100),
+            point[1] + (worldPos.y * 100),
+            point[2] + (worldPos.z * 100)
+        ]);
+        
+        // Check ray-structure intersection (simplified bounding box check)
+        const intersection = rayIntersectStructure(rayOrigin, rayDirection, worldPoints, worldPos);
+        if (intersection && intersection.distance < closestDistance) {
+            closestDistance = intersection.distance;
+            closestStructure = worldPos;
+        }
+    }
+    
+    // Remove the closest structure if found
+    if (closestStructure) {
+        removeStructure(closestStructure);
+        render();
+        console.log(`Removed structure at ${closestStructure.x},${closestStructure.y},${closestStructure.z}`);
+    }
+}
+
+// Perform raycast and place structure on hit surface
+function performRaycastPlace() {
+    const rayOrigin = [view.x, view.y, view.z];
+    const rayDirection = normalize(view.forward);
+    
+    let closestStructure = null;
+    let closestDistance = Infinity;
+    let closestIntersection = null;
+    
+    // Check each structure in the world
+    for (const [posKey, structureName] of worldStructureMap) {
+        const worldPos = parseWorldPosition(posKey);
+        if (!worldPos) continue;
+        
+        const structureData = structureCache.get(structureName);
+        if (!structureData) continue;
+        
+        // Transform structure points to world space
+        const worldPoints = structureData.points.map(point => [
+            point[0] + (worldPos.x * 100),
+            point[1] + (worldPos.y * 100),
+            point[2] + (worldPos.z * 100)
+        ]);
+        
+        // Check ray-structure intersection with surface detection
+        const intersection = rayIntersectStructureWithSurface(rayOrigin, rayDirection, worldPoints, worldPos);
+        if (intersection && intersection.distance < closestDistance) {
+            closestDistance = intersection.distance;
+            closestStructure = worldPos;
+            closestIntersection = intersection;
+        }
+    }
+    
+    // Place cube at calculated position if surface was hit
+    if (closestStructure && closestIntersection) {
+        const placePosition = calculatePlacePosition(closestIntersection);
+        if (placePosition) {
+            const success = addStructure(placePosition, "cube");
+            if (success) {
+                render();
+                console.log(`Placed cube at ${placePosition.x},${placePosition.y},${placePosition.z}`);
+            }
+        }
+    }
+}
+
+// Ray-structure intersection with surface normal detection
+function rayIntersectStructureWithSurface(rayOrigin, rayDirection, worldPoints, worldPos) {
+    // First get basic AABB intersection
+    const basicIntersection = rayIntersectStructure(rayOrigin, rayDirection, worldPoints, worldPos);
+    if (!basicIntersection) return null;
+    
+    // Determine which face was hit by checking which axis is closest to the surface
+    const hitPoint = basicIntersection.point;
+    const structureCenter = [
+        worldPos.x * 100,
+        worldPos.y * 100,
+        worldPos.z * 100
+    ];
+    
+    // Calculate distances to each face center
+    const halfSize = 50; // Assuming structures are 100x100x100
+    
+    const faces = [
+        { normal: [1, 0, 0], center: [structureCenter[0] + halfSize, structureCenter[1], structureCenter[2]], direction: 'right' },
+        { normal: [-1, 0, 0], center: [structureCenter[0] - halfSize, structureCenter[1], structureCenter[2]], direction: 'left' },
+        { normal: [0, 1, 0], center: [structureCenter[0], structureCenter[1] + halfSize, structureCenter[2]], direction: 'up' },
+        { normal: [0, -1, 0], center: [structureCenter[0], structureCenter[1] - halfSize, structureCenter[2]], direction: 'down' },
+        { normal: [0, 0, 1], center: [structureCenter[0], structureCenter[1], structureCenter[2] + halfSize], direction: 'forward' },
+        { normal: [0, 0, -1], center: [structureCenter[0], structureCenter[1], structureCenter[2] - halfSize], direction: 'backward' }
+    ];
+    
+    let closestFace = null;
+    let minDistance = Infinity;
+    
+    for (const face of faces) {
+        const distance = Math.sqrt(
+            Math.pow(hitPoint[0] - face.center[0], 2) +
+            Math.pow(hitPoint[1] - face.center[1], 2) +
+            Math.pow(hitPoint[2] - face.center[2], 2)
+        );
+        if (distance < minDistance) {
+            minDistance = distance;
+            closestFace = face;
+        }
+    }
+    
+    return {
+        ...basicIntersection,
+        hitNormal: closestFace.normal,
+        hitDirection: closestFace.direction
+    };
+}
+
+// Calculate position to place new structure
+function calculatePlacePosition(intersection) {
+    const hitDirection = intersection.hitDirection;
+    const hitPoint = intersection.point;
+    
+    // Calculate grid position - for positive directions, don't add extra unit
+    let gridX = Math.round(hitPoint[0] / 100);
+    let gridY = Math.round(hitPoint[1] / 100);
+    let gridZ = Math.round(hitPoint[2] / 100);
+    
+    // Adjust based on hit direction
+    switch (hitDirection) {
+        case 'right':
+            // Don't add extra unit since we're already on the surface
+            break;
+        case 'left':
+            gridX -= 1;
+            break;
+        case 'up':
+            // Don't add extra unit since we're already on the surface
+            break;
+        case 'down':
+            gridY -= 1;
+            break;
+        case 'forward':
+            // Don't add extra unit since we're already on the surface
+            break;
+        case 'backward':
+            gridZ -= 1;
+            break;
+    }
+    
+    const placePosition = { x: gridX, y: gridY, z: gridZ };
+    
+    // Check if position is already occupied
+    const posKey = `${gridX},${gridY},${gridZ}`;
+    if (worldStructureMap.has(posKey)) {
+        console.log(`Position ${posKey} is already occupied`);
+        return null;
+    }
+    
+    return placePosition;
+}
+
+// Simple ray-structure intersection using bounding box
+function rayIntersectStructure(rayOrigin, rayDirection, worldPoints, worldPos) {
+    // Calculate bounding box
+    let min = [Infinity, Infinity, Infinity];
+    let max = [-Infinity, -Infinity, -Infinity];
+    
+    for (const point of worldPoints) {
+        for (let i = 0; i < 3; i++) {
+            min[i] = Math.min(min[i], point[i]);
+            max[i] = Math.max(max[i], point[i]);
+        }
+    }
+    
+    // Ray-AABB intersection
+    const tMin = [
+        (min[0] - rayOrigin[0]) / rayDirection[0],
+        (min[1] - rayOrigin[1]) / rayDirection[1],
+        (min[2] - rayOrigin[2]) / rayDirection[2]
+    ];
+    
+    const tMax = [
+        (max[0] - rayOrigin[0]) / rayDirection[0],
+        (max[1] - rayOrigin[1]) / rayDirection[1],
+        (max[2] - rayOrigin[2]) / rayDirection[2]
+    ];
+    
+    const t1 = [Math.min(tMin[0], tMax[0]), Math.min(tMin[1], tMax[1]), Math.min(tMin[2], tMax[2])];
+    const t2 = [Math.max(tMin[0], tMax[0]), Math.max(tMin[1], tMax[1]), Math.max(tMin[2], tMax[2])];
+    
+    const tNear = Math.max(t1[0], t1[1], t1[2]);
+    const tFar = Math.min(t2[0], t2[1], t2[2]);
+    
+    if (tNear > tFar || tFar < 0) {
+        return null; // No intersection
+    }
+    
+    return {
+        distance: tNear > 0 ? tNear : tFar,
+        point: [
+            rayOrigin[0] + rayDirection[0] * (tNear > 0 ? tNear : tFar),
+            rayOrigin[1] + rayDirection[1] * (tNear > 0 ? tNear : tFar),
+            rayOrigin[2] + rayDirection[2] * (tNear > 0 ? tNear : tFar)
+        ]
+    };
+}
 
 // Function to snap position and rotation to grid
 function snapToGrid() {
