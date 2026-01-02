@@ -11,6 +11,10 @@ let strokeColor = '#00ff00';
 // Structure cache to avoid re-fetching
 const structureCache = new Map();
 
+// World structures map - stores structure types at world positions
+// Format: "x,y,z" -> "structureName"
+const worldStructureMap = new Map();
+
 // --- Camera / View ---
 const view = {
     x: 0,
@@ -104,6 +108,9 @@ function loadWorld() {
 }
 
 function buildWorld(worldData) {
+    // Clear previous world structures map
+    worldStructureMap.clear();
+    
     let pointOffset = 0;
     
     for (const [worldPosKey, structureName] of Object.entries(worldData)) {
@@ -116,7 +123,113 @@ function buildWorld(worldData) {
             continue;
         }
         
+        // Store structure type at world position
+        worldStructureMap.set(worldPosKey, structureName);
+        
         // Add points with world position offset (multiplied by 100)
+        for (const point of structureData.points) {
+            points3D.push([
+                point[0] + (worldPos.x * 100),
+                point[1] + (worldPos.y * 100),
+                point[2] + (worldPos.z * 100)
+            ]);
+        }
+        
+        // Add edges with point offset
+        for (const edge of structureData.edges) {
+            edges.push([
+                edge[0] + pointOffset,
+                edge[1] + pointOffset
+            ]);
+        }
+        
+        pointOffset += structureData.points.length;
+    }
+}
+
+// Add a structure at a specific world position
+function addStructure(worldPos, structureName) {
+    const posKey = `${worldPos.x},${worldPos.y},${worldPos.z}`;
+    
+    // Check if position is already occupied
+    if (worldStructureMap.has(posKey)) {
+        console.warn(`Position ${posKey} is already occupied by ${worldStructureMap.get(posKey)}`);
+        return false;
+    }
+    
+    // Check if structure type exists
+    const structureData = structureCache.get(structureName);
+    if (!structureData) {
+        console.error(`Structure type "${structureName}" not found in cache`);
+        return false;
+    }
+    
+    // Store structure in world map
+    worldStructureMap.set(posKey, structureName);
+    
+    // Calculate point offset (current end of points array)
+    const pointOffset = points3D.length;
+    
+    // Add points with world position offset
+    for (const point of structureData.points) {
+        points3D.push([
+            point[0] + (worldPos.x * 100),
+            point[1] + (worldPos.y * 100),
+            point[2] + (worldPos.z * 100)
+        ]);
+    }
+    
+    // Add edges with point offset
+    for (const edge of structureData.edges) {
+        edges.push([
+            edge[0] + pointOffset,
+            edge[1] + pointOffset
+        ]);
+    }
+    
+    console.log(`Added ${structureName} at position ${posKey}`);
+    return true;
+}
+
+// Remove a structure at a specific world position
+function removeStructure(worldPos) {
+    const posKey = `${worldPos.x},${worldPos.y},${worldPos.z}`;
+    
+    // Check if position has a structure
+    const structureName = worldStructureMap.get(posKey);
+    if (!structureName) {
+        console.warn(`No structure found at position ${posKey}`);
+        return false;
+    }
+    
+    // Remove from world map
+    worldStructureMap.delete(posKey);
+    
+    // Rebuild the entire world (simpler than trying to remove specific points/edges)
+    // This ensures proper point offset handling
+    rebuildWorld();
+    
+    console.log(`Removed ${structureName} from position ${posKey}`);
+    return true;
+}
+
+// Rebuild the world from the worldStructureMap
+function rebuildWorld() {
+    // Clear points and edges
+    points3D.length = 0;
+    edges.length = 0;
+    
+    let pointOffset = 0;
+    
+    // Rebuild from world structure map
+    for (const [posKey, structureName] of worldStructureMap) {
+        const structureData = structureCache.get(structureName);
+        if (!structureData) continue;
+        
+        const worldPos = parseWorldPosition(posKey);
+        if (!worldPos) continue;
+        
+        // Add points with world position offset
         for (const point of structureData.points) {
             points3D.push([
                 point[0] + (worldPos.x * 100),
