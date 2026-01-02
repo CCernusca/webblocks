@@ -15,6 +15,9 @@ const structureCache = new Map();
 // Format: "x,y,z" -> "structureName"
 const worldStructureMap = new Map();
 
+// Selected structure for placement (default: "cube")
+let selectedStructure = "cube";
+
 // --- Camera / View ---
 const view = {
     x: 0,
@@ -697,10 +700,16 @@ window.addEventListener('keydown',e=>{
         updateInteractiveDisplay();
     }
     
+    // Handle number keys for structure selection
+    if(e.code.startsWith('Digit')) {
+        handleStructureSelection(e.code);
+    }
+    
     // Prevent default browser behaviors for game controls
     if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 
         'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 
-        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape'].includes(e.code)) {
+        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
+        'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'].includes(e.code)) {
         e.preventDefault();
     }
 });
@@ -713,7 +722,8 @@ window.addEventListener('keyup',e=>{
     // Prevent default browser behaviors for game controls
     if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 
         'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 
-        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape'].includes(e.code)) {
+        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
+        'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'].includes(e.code)) {
         e.preventDefault();
     }
 });
@@ -836,14 +846,14 @@ function performRaycastPlace() {
         }
     }
     
-    // Place cube at calculated position if surface was hit
+    // Place structure at calculated position if surface was hit
     if (closestStructure && closestIntersection) {
         const placePosition = calculatePlacePosition(closestIntersection);
         if (placePosition) {
-            const success = addStructure(placePosition, "cube");
+            const success = addStructure(placePosition, selectedStructure);
             if (success) {
                 render();
-                console.log(`Placed cube at ${placePosition.x},${placePosition.y},${placePosition.z}`);
+                console.log(`Placed ${selectedStructure} at ${placePosition.x},${placePosition.y},${placePosition.z}`);
             }
         }
     }
@@ -985,6 +995,32 @@ function rayIntersectStructure(rayOrigin, rayDirection, worldPoints, worldPos) {
             rayOrigin[2] + rayDirection[2] * (tNear > 0 ? tNear : tFar)
         ]
     };
+}
+
+// Handle structure selection using number keys
+function handleStructureSelection(keyCode) {
+    // Get sorted list of structure names from cache
+    const structureNames = Array.from(structureCache.keys()).sort();
+    
+    // Extract number from key code
+    let number = parseInt(keyCode.replace('Digit', ''));
+    
+    // Handle 0 as index 10
+    if (number === 0) {
+        number = 10;
+    }
+    
+    // Check if number is within valid range (1-10)
+    if (number < 1 || number > structureNames.length) {
+        console.log(`Invalid structure index: ${number}. Available structures: 1-${structureNames.length}`);
+        return;
+    }
+    
+    // Select structure (1-based index)
+    const selectedIndex = number - 1;
+    selectedStructure = structureNames[selectedIndex];
+    
+    console.log(`Selected structure: ${selectedStructure} (index ${number})`);
 }
 
 // Function to snap position and rotation to grid
