@@ -1023,6 +1023,51 @@ function handleStructureSelection(keyCode) {
     console.log(`Selected structure: ${selectedStructure} (index ${number})`);
 }
 
+// Check if position would collide with any structure
+function checkCollision(position) {
+    const playerRadius = 20; // Player collision radius in world units
+    
+    for (const [posKey, structureName] of worldStructureMap) {
+        const worldPos = parseWorldPosition(posKey);
+        if (!worldPos) continue;
+        
+        const structureData = structureCache.get(structureName);
+        if (!structureData) continue;
+        
+        // Transform structure points to world space
+        const worldPoints = structureData.points.map(point => [
+            point[0] + (worldPos.x * 100),
+            point[1] + (worldPos.y * 100),
+            point[2] + (worldPos.z * 100)
+        ]);
+        
+        // Calculate structure bounding box
+        let min = [Infinity, Infinity, Infinity];
+        let max = [-Infinity, -Infinity, -Infinity];
+        
+        for (const point of worldPoints) {
+            for (let i = 0; i < 3; i++) {
+                min[i] = Math.min(min[i], point[i]);
+                max[i] = Math.max(max[i], point[i]);
+            }
+        }
+        
+        // Expand bounding box by player radius
+        min[0] -= playerRadius; max[0] += playerRadius;
+        min[1] -= playerRadius; max[1] += playerRadius;
+        min[2] -= playerRadius; max[2] += playerRadius;
+        
+        // Check if player position is inside expanded bounding box
+        if (position[0] >= min[0] && position[0] <= max[0] &&
+            position[1] >= min[1] && position[1] <= max[1] &&
+            position[2] >= min[2] && position[2] <= max[2]) {
+            return true; // Collision detected
+        }
+    }
+    
+    return false; // No collision
+}
+
 // Function to snap position and rotation to grid
 function snapToGrid() {
     // Snap position to nearest 100
@@ -1315,7 +1360,7 @@ function updateCamera(time){
             }
         }
     } else if(interactiveMode) {
-        // Interactive mode movement - WASD, Space, Shift
+        // Interactive mode movement - WASD, Space, Shift with collision detection
         // Use horizontal forward vector (ignore pitch for movement)
         const horizontalForward = [view.forward[0], 0, view.forward[2]];
         const normalizedForward = normalize(horizontalForward);
@@ -1323,12 +1368,85 @@ function updateCamera(time){
         // Pure vertical movement
         const verticalUp = [0, 1, 0];
         
-        if(keys['KeyW'])     { view.x+=normalizedForward[0]*speed; view.z+=normalizedForward[2]*speed; moved=true; }
-        if(keys['KeyS'])     { view.x-=normalizedForward[0]*speed; view.z-=normalizedForward[2]*speed; moved=true; }
-        if(keys['KeyA'])     { view.x-=right[0]*speed;   view.z-=right[2]*speed; moved=true; }
-        if(keys['KeyD'])     { view.x+=right[0]*speed;   view.z+=right[2]*speed; moved=true; }
-        if(keys['Space'])    { view.x+=verticalUp[0]*speed; view.y+=verticalUp[1]*speed; view.z+=verticalUp[2]*speed; moved=true; }
-        if(keys['ShiftLeft']){ view.x-=verticalUp[0]*speed; view.y-=verticalUp[1]*speed; view.z-=verticalUp[2]*speed; moved=true; }
+        // Calculate potential new positions
+        const currentPos = [view.x, view.y, view.z];
+        let newPos = [...currentPos];
+        
+        if(keys['KeyW'])     { newPos[0]+=normalizedForward[0]*speed; newPos[2]+=normalizedForward[2]*speed; }
+        if(keys['KeyS'])     { newPos[0]-=normalizedForward[0]*speed; newPos[2]-=normalizedForward[2]*speed; }
+        if(keys['KeyA'])     { newPos[0]-=right[0]*speed;   newPos[2]-=right[2]*speed; }
+        if(keys['KeyD'])     { newPos[0]+=right[0]*speed;   newPos[2]+=right[2]*speed; }
+        if(keys['Space'])    { newPos[0]+=verticalUp[0]*speed; newPos[1]+=verticalUp[1]*speed; newPos[2]+=verticalUp[2]*speed; }
+        if(keys['ShiftLeft']){ newPos[0]-=verticalUp[0]*speed; newPos[1]-=verticalUp[1]*speed; newPos[2]-=verticalUp[2]*speed; }
+        
+        // Check collision before applying movement
+        // Only check new position if current position is not colliding (prevents getting stuck)
+        const currentPosColliding = checkCollision(currentPos);
+        
+        if (!currentPosColliding) {
+            // Check each movement component separately
+            let movedX = false, movedY = false, movedZ = false;
+            
+            // Forward/Backward movement (XZ plane)
+            if(keys['KeyW'] || keys['KeyS']) {
+                const testPos = [...currentPos];
+                if(keys['KeyW']) {
+                    testPos[0] += normalizedForward[0]*speed;
+                    testPos[2] += normalizedForward[2]*speed;
+                }
+                if(keys['KeyS']) {
+                    testPos[0] -= normalizedForward[0]*speed;
+                    testPos[2] -= normalizedForward[2]*speed;
+                }
+                if (!checkCollision(testPos)) {
+                    view.x = testPos[0];
+                    view.z = testPos[2];
+                    movedX = true;
+                }
+            }
+            
+            // Left/Right movement (XZ plane)
+            if(keys['KeyA'] || keys['KeyD']) {
+                const testPos = [view.x, view.y, view.z]; // Use potentially updated position
+                if(keys['KeyA']) {
+                    testPos[0] -= right[0]*speed;
+                    testPos[2] -= right[2]*speed;
+                }
+                if(keys['KeyD']) {
+                    testPos[0] += right[0]*speed;
+                    testPos[2] += right[2]*speed;
+                }
+                if (!checkCollision(testPos)) {
+                    view.x = testPos[0];
+                    view.z = testPos[2];
+                    movedX = true;
+                }
+            }
+            
+            // Vertical movement (Y axis)
+            if(keys['Space'] || keys['ShiftLeft']) {
+                const testPos = [view.x, view.y, view.z]; // Use potentially updated position
+                if(keys['Space']) {
+                    testPos[1] += verticalUp[1]*speed;
+                }
+                if(keys['ShiftLeft']) {
+                    testPos[1] -= verticalUp[1]*speed;
+                }
+                if (!checkCollision(testPos)) {
+                    view.y = testPos[1];
+                    movedY = true;
+                }
+            }
+            
+            if (movedX || movedY) moved = true;
+        } else {
+            // If currently colliding, allow movement to try to escape
+            // This prevents getting permanently stuck
+            view.x = newPos[0];
+            view.y = newPos[1];
+            view.z = newPos[2];
+            moved = true;
+        }
     } else {
         // Normal movement
         if(keys['ArrowUp'])   { view.x+=forward[0]*speed; view.y+=forward[1]*speed; view.z+=forward[2]*speed; moved=true; }
