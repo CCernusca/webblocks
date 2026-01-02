@@ -18,6 +18,9 @@ const worldStructureMap = new Map();
 // Selected structure for placement (default: "cube")
 let selectedStructure = "cube";
 
+// Gravity state
+let gravityEnabled = false;
+
 // --- Camera / View ---
 const view = {
     x: 0,
@@ -705,10 +708,15 @@ window.addEventListener('keydown',e=>{
         handleStructureSelection(e.code);
     }
     
+    // Handle gravity toggle
+    if(e.code === 'KeyG') {
+        toggleGravity();
+    }
+    
     // Prevent default browser behaviors for game controls
     if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 
         'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 
-        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
+        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'KeyG', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
         'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'].includes(e.code)) {
         e.preventDefault();
     }
@@ -722,7 +730,7 @@ window.addEventListener('keyup',e=>{
     // Prevent default browser behaviors for game controls
     if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 
         'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 
-        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
+        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'KeyG', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
         'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'].includes(e.code)) {
         e.preventDefault();
     }
@@ -731,6 +739,7 @@ window.addEventListener('keyup',e=>{
 // Initialize visibility and interactive displays
 updateVisibilityDisplay();
 updateInteractiveDisplay();
+updateGravityDisplay();
 
 // Mouse event handlers for interactive mode
 document.addEventListener('pointerlockchange', () => {
@@ -745,17 +754,35 @@ document.addEventListener('mousemove', (e) => {
         const deltaYaw = e.movementX * sensitivity;
         const deltaPitch = e.movementY * sensitivity;
         
+        // Check pitch limits before applying pitch rotation
+        const currentPitch = Math.asin(-view.forward[1]) * 180 / Math.PI;
+        const maxPitch = 89;
+        const minPitch = -89;
+        
+        // Only apply pitch if within limits
+        let applyPitch = true;
+        if (deltaPitch > 0 && currentPitch >= maxPitch) {
+            applyPitch = false; // Trying to look up beyond limit
+        } else if (deltaPitch < 0 && currentPitch <= minPitch) {
+            applyPitch = false; // Trying to look down beyond limit
+        }
+        
         // Apply yaw rotation using rotateAroundAxis (more reliable)
         const yawedForward = rotateAroundAxis(view.forward, [0, 1, 0], deltaYaw);
         const yawedRight = rotateAroundAxis(view.right, [0, 1, 0], deltaYaw);
         const yawedUp = rotateAroundAxis(view.up, [0, 1, 0], deltaYaw);
         
-        // Apply pitch rotation using rotateAroundAxis (more reliable)
-        const newForward = rotateAroundAxis(yawedForward, yawedRight, deltaPitch);
-        const newUp = rotateAroundAxis(yawedUp, yawedRight, deltaPitch);
+        // Apply pitch rotation only if within limits
+        let finalForward = yawedForward;
+        let finalUp = yawedUp;
         
-        view.forward = newForward;
-        view.up = newUp;
+        if (applyPitch) {
+            finalForward = rotateAroundAxis(yawedForward, yawedRight, deltaPitch);
+            finalUp = rotateAroundAxis(yawedUp, yawedRight, deltaPitch);
+        }
+        
+        view.forward = finalForward;
+        view.up = finalUp;
         view.right = yawedRight; // Keep the yawed right vector
         
         // No resetRoll needed - yaw+pitch sequence should be clean
@@ -1021,6 +1048,20 @@ function handleStructureSelection(keyCode) {
     selectedStructure = structureNames[selectedIndex];
     
     console.log(`Selected structure: ${selectedStructure} (index ${number})`);
+}
+
+// Toggle gravity on/off
+function toggleGravity() {
+    gravityEnabled = !gravityEnabled;
+    updateGravityDisplay();
+    console.log(`Gravity ${gravityEnabled ? 'enabled' : 'disabled'}`);
+}
+
+// Update gravity display
+function updateGravityDisplay() {
+    const gravityStatus = document.getElementById('gravity-status');
+    gravityStatus.textContent = gravityEnabled ? 'ON' : 'OFF';
+    gravityStatus.className = gravityEnabled ? 'gravity-value on' : 'gravity-value off';
 }
 
 // Check if position would collide with any structure
@@ -1455,6 +1496,23 @@ function updateCamera(time){
         if(keys['ArrowRight']){ view.x+=right[0]*speed;   view.y+=right[1]*speed;   view.z+=right[2]*speed; moved=true; }
         if(keys['Space'])     { view.x+=up[0]*speed;      view.y+=up[1]*speed;      view.z+=up[2]*speed; moved=true; }
         if(keys['ShiftLeft']) { view.x-=up[0]*speed;      view.y-=up[1]*speed;      view.z-=up[2]*speed; moved=true; }
+    }
+
+    // --- Gravity ---
+    if (gravityEnabled) {
+        const gravitySpeed = 200; // Gravity speed in world units per second
+        const gravityDelta = gravitySpeed * deltaTime;
+        
+        // Apply gravity as downward movement
+        const gravityTestPos = [view.x, view.y - gravityDelta, view.z];
+        
+        // Check collision for gravity
+        const currentPosColliding = checkCollision([view.x, view.y, view.z]);
+        if (!currentPosColliding && !checkCollision(gravityTestPos)) {
+            view.y -= gravityDelta;
+            moved = true;
+        }
+        // If colliding, don't apply gravity (player is on ground)
     }
 
     // --- Rotation ---

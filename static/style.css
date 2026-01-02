@@ -176,3 +176,46 @@ input[type="color"]:hover {
 .mode-value.interactive {
     background: #4CAF50;
 }
+
+.gravity-info {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.gravity-text {
+    font-size: 14px;
+    color: #333;
+    font-weight: 500;
+}
+
+.gravity-status {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.gravity-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+}
+
+.gravity-value {
+    background: #666;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: bold;
+    min-width: 30px;
+    text-align: center;
+}
+
+.gravity-value.on {
+    background: #9C27B0;
+}
+
+.gravity-value.off {
+    background: #f44336;
+}
