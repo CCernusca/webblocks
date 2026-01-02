@@ -37,6 +37,14 @@
             <div class="rotation-text">Direction:</div>
             <canvas id="rotation-canvas" width="80" height="80"></canvas>
         </div>
+        <div class="interactive-info">
+            <div class="interactive-text">Mode:</div>
+            <div class="interactive-status">
+                <div class="interactive-item">
+                    <span id="mode-status" class="mode-value">NORMAL</span>
+                </div>
+            </div>
+        </div>
     </div>
     <canvas id="canvas"></canvas>
     <script src="{{ url_for('static', filename='script.js') }}"></script>

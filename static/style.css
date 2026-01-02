@@ -154,3 +154,25 @@ input[type="color"]:hover {
 .visibility-value.off {
     background: #f44336;
 }
+
+.mode-value {
+    background: #666;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: bold;
+    min-width: 30px;
+    text-align: center;
+}
+
+.mode-value.normal {
+    background: #2196F3;
+}
+
+.mode-value.aligned {
+    background: #FF9800;
+}
+
+.mode-value.interactive {
+    background: #4CAF50;
+}

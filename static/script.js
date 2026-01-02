@@ -148,10 +148,17 @@ const rotationCanvas = document.getElementById('rotation-canvas');
 const rotationCtx = rotationCanvas.getContext('2d');
 const pointsStatus = document.getElementById('points-status');
 const edgesStatus = document.getElementById('edges-status');
+const interactiveStatus = document.getElementById('interactive-status');
 
 // Visibility state
 let pointsVisible = true;
 let edgesVisible = true;
+
+// Interactive mode state
+let interactiveMode = false;
+let mouseX = 0;
+let mouseY = 0;
+let isPointerLocked = false;
 
 function updatePositionDisplay() {
     const x = Math.round(view.x);
@@ -170,6 +177,21 @@ function updateVisibilityDisplay() {
     edgesStatus.className = edgesVisible ? 'visibility-value on' : 'visibility-value off';
 }
 
+function updateInteractiveDisplay() {
+    const modeStatus = document.getElementById('mode-status');
+    
+    if (interactiveMode) {
+        modeStatus.textContent = 'INTERACTIVE';
+        modeStatus.className = 'mode-value interactive';
+    } else if (altPressed) {
+        modeStatus.textContent = 'ALIGNED';
+        modeStatus.className = 'mode-value aligned';
+    } else {
+        modeStatus.textContent = 'NORMAL';
+        modeStatus.className = 'mode-value normal';
+    }
+}
+
 function togglePointsVisibility() {
     pointsVisible = !pointsVisible;
     updateVisibilityDisplay();
@@ -180,6 +202,50 @@ function toggleEdgesVisibility() {
     edgesVisible = !edgesVisible;
     updateVisibilityDisplay();
     render();
+}
+
+function toggleInteractiveMode() {
+    interactiveMode = !interactiveMode;
+    
+    // Make modes mutually exclusive - disable Alt mode when entering interactive
+    if (interactiveMode) {
+        altPressed = false;
+    }
+    
+    updateInteractiveDisplay();
+    
+    if (interactiveMode) {
+        // Enable pointer lock for mouse control
+        canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
+        canvas.requestPointerLock();
+        // Reset roll to 0 when entering interactive mode
+        resetRoll();
+    } else {
+        // Exit pointer lock
+        document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
+        document.exitPointerLock();
+    }
+}
+
+function resetRoll() {
+    // Reset roll to 0 by orthonormalizing with world up
+    const worldUp = [0, 1, 0];
+    const dotProduct = view.forward[0] * worldUp[0] + view.forward[1] * worldUp[1] + view.forward[2] * worldUp[2];
+    
+    if (Math.abs(dotProduct) > 0.99) {
+        // Forward is parallel to world up, use world forward as reference
+        const worldForward = [0, 0, 1];
+        view.right = cross(view.forward, worldForward);
+    } else {
+        view.right = cross(worldUp, view.forward);
+    }
+    
+    view.up = cross(view.forward, view.right);
+    
+    // Normalize all vectors
+    view.forward = normalize(view.forward);
+    view.right = normalize(view.right);
+    view.up = normalize(view.up);
 }
 
 function drawRotationArrow() {
@@ -413,9 +479,16 @@ const ROTATION_SNAP = 90; // Rotation snap to 90 degrees
 
 window.addEventListener('keydown',e=>{
     keys[e.code]=true;
-    if(e.code === 'AltLeft' || e.code === 'AltRight') {
+    if(e.code === 'KeyV') {
+        // Make modes mutually exclusive - disable interactive mode when V is pressed
+        if (interactiveMode) {
+            interactiveMode = false;
+            document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
+            document.exitPointerLock();
+        }
         altPressed = true;
         snapToGrid();
+        updateInteractiveDisplay();
     }
     
     // Handle visibility toggles
@@ -426,28 +499,74 @@ window.addEventListener('keydown',e=>{
         toggleEdgesVisibility();
     }
     
+    // Handle interactive mode toggle
+    if(e.code === 'KeyC') {
+        toggleInteractiveMode();
+    }
+    
+    // Handle ESC key to exit interactive mode
+    if(e.code === 'Escape' && interactiveMode) {
+        interactiveMode = false;
+        document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
+        document.exitPointerLock();
+        updateInteractiveDisplay();
+    }
+    
     // Prevent default browser behaviors for game controls
     if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 
-        'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 'ControlLeft', 
-        'KeyM', 'KeyN'].includes(e.code)) {
+        'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 
+        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape'].includes(e.code)) {
         e.preventDefault();
     }
 });
 window.addEventListener('keyup',e=>{
     keys[e.code]=false;
-    if(e.code === 'AltLeft' || e.code === 'AltRight') {
+    if(e.code === 'KeyV') {
         altPressed = false;
+        updateInteractiveDisplay();
     }
     // Prevent default browser behaviors for game controls
     if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 
-        'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 'ControlLeft', 
-        'KeyM', 'KeyN'].includes(e.code)) {
+        'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 
+        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape'].includes(e.code)) {
         e.preventDefault();
     }
 });
 
-// Initialize visibility display
+// Initialize visibility and interactive displays
 updateVisibilityDisplay();
+updateInteractiveDisplay();
+
+// Mouse event handlers for interactive mode
+document.addEventListener('pointerlockchange', () => {
+    isPointerLocked = document.pointerLockElement === canvas;
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (interactiveMode && isPointerLocked) {
+        // Apply Alt speed multiplier to mouse sensitivity
+        const speedMultiplier = keys['AltLeft'] || keys['AltRight'] ? 2 : 1;
+        const sensitivity = 0.1 * speedMultiplier;
+        const deltaYaw = e.movementX * sensitivity;
+        const deltaPitch = e.movementY * sensitivity;
+        
+        // Apply yaw rotation using rotateAroundAxis (more reliable)
+        const yawedForward = rotateAroundAxis(view.forward, [0, 1, 0], deltaYaw);
+        const yawedRight = rotateAroundAxis(view.right, [0, 1, 0], deltaYaw);
+        const yawedUp = rotateAroundAxis(view.up, [0, 1, 0], deltaYaw);
+        
+        // Apply pitch rotation using rotateAroundAxis (more reliable)
+        const newForward = rotateAroundAxis(yawedForward, yawedRight, deltaPitch);
+        const newUp = rotateAroundAxis(yawedUp, yawedRight, deltaPitch);
+        
+        view.forward = newForward;
+        view.up = newUp;
+        view.right = yawedRight; // Keep the yawed right vector
+        
+        // No resetRoll needed - yaw+pitch sequence should be clean
+        render();
+    }
+});
 
 // Function to snap position and rotation to grid
 function snapToGrid() {
@@ -548,11 +667,11 @@ function updateCameraRotation(rotDelta){
 
             // Pitch (W/S)
             if(keys['KeyW']){
-                rotateByGrid(ROTATION_SNAP, 0, 0);
+                rotateByGrid(-ROTATION_SNAP, 0, 0);
                 rotated=true;
             }
             if(keys['KeyS']){
-                rotateByGrid(-ROTATION_SNAP, 0, 0);
+                rotateByGrid(ROTATION_SNAP, 0, 0);
                 rotated=true;
             }
 
@@ -626,20 +745,24 @@ function rotateByGrid(pitch, yaw, roll) {
     
     if(pitch !== 0) {
         // Pitch 90° around world X axis
+        const pitchRad = pitch * Math.PI / 180;
+        const cosPitch = Math.cos(pitchRad);
+        const sinPitch = Math.sin(pitchRad);
+        
         const newForward = [
             view.forward[0],
-            view.forward[2] * Math.sin(pitch * Math.PI / 180) + view.forward[1] * Math.cos(pitch * Math.PI / 180),
-            view.forward[2] * Math.cos(pitch * Math.PI / 180) - view.forward[1] * Math.sin(pitch * Math.PI / 180)
+            view.forward[1] * cosPitch - view.forward[2] * sinPitch,
+            view.forward[1] * sinPitch + view.forward[2] * cosPitch
         ];
         const newUp = [
             view.up[0],
-            view.up[2] * Math.sin(pitch * Math.PI / 180) + view.up[1] * Math.cos(pitch * Math.PI / 180),
-            view.up[2] * Math.cos(pitch * Math.PI / 180) - view.up[1] * Math.sin(pitch * Math.PI / 180)
+            view.up[1] * cosPitch - view.up[2] * sinPitch,
+            view.up[1] * sinPitch + view.up[2] * cosPitch
         ];
         const newRight = [
             view.right[0],
-            view.right[2] * Math.sin(pitch * Math.PI / 180) + view.right[1] * Math.cos(pitch * Math.PI / 180),
-            view.right[2] * Math.cos(pitch * Math.PI / 180) - view.right[1] * Math.sin(pitch * Math.PI / 180)
+            view.right[1] * cosPitch - view.right[2] * sinPitch,
+            view.right[1] * sinPitch + view.right[2] * cosPitch
         ];
         
         view.forward = newForward;
@@ -705,8 +828,8 @@ function updateCamera(time){
     const deltaTime = (time - lastTime)/1000;
     lastTime = time;
 
-    // Apply Left Ctrl modifier for both movement and rotation
-    let speedMultiplier = keys['ControlLeft'] ? 10 : 1;
+    // Apply Alt modifier for both movement and rotation
+    let speedMultiplier = keys['AltLeft'] || keys['AltRight'] ? 10 : 1;
 
     const moveSpeed = BASE_MOVE_SPEED * speedMultiplier;
     const rotSpeed  = BASE_ROTATE_SPEED * speedMultiplier;
@@ -736,6 +859,21 @@ function updateCamera(time){
                 moved = true;
             }
         }
+    } else if(interactiveMode) {
+        // Interactive mode movement - WASD, Space, Shift
+        // Use horizontal forward vector (ignore pitch for movement)
+        const horizontalForward = [view.forward[0], 0, view.forward[2]];
+        const normalizedForward = normalize(horizontalForward);
+        
+        // Pure vertical movement
+        const verticalUp = [0, 1, 0];
+        
+        if(keys['KeyW'])     { view.x+=normalizedForward[0]*speed; view.z+=normalizedForward[2]*speed; moved=true; }
+        if(keys['KeyS'])     { view.x-=normalizedForward[0]*speed; view.z-=normalizedForward[2]*speed; moved=true; }
+        if(keys['KeyA'])     { view.x-=right[0]*speed;   view.z-=right[2]*speed; moved=true; }
+        if(keys['KeyD'])     { view.x+=right[0]*speed;   view.z+=right[2]*speed; moved=true; }
+        if(keys['Space'])    { view.x+=verticalUp[0]*speed; view.y+=verticalUp[1]*speed; view.z+=verticalUp[2]*speed; moved=true; }
+        if(keys['ShiftLeft']){ view.x-=verticalUp[0]*speed; view.y-=verticalUp[1]*speed; view.z-=verticalUp[2]*speed; moved=true; }
     } else {
         // Normal movement
         if(keys['ArrowUp'])   { view.x+=forward[0]*speed; view.y+=forward[1]*speed; view.z+=forward[2]*speed; moved=true; }
@@ -747,7 +885,7 @@ function updateCamera(time){
     }
 
     // --- Rotation ---
-    const rotated = updateCameraRotation(rotDelta);
+    const rotated = interactiveMode ? false : updateCameraRotation(rotDelta);
 
     if(moved || rotated) render();
     requestAnimationFrame(updateCamera);
