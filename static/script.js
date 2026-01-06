@@ -2,11 +2,16 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const pointColorPicker = document.getElementById('point-color');
 const strokeColorPicker = document.getElementById('stroke-color');
+const userDisplay = document.getElementById('user-display');
+const logoutButton = document.getElementById('logout-button');
 
 let points3D = [];
 let edges = [];
 let pointColor = '#0000ff';
 let strokeColor = '#00ff00';
+
+// User session
+let currentUser = null;
 
 // Structure cache to avoid re-fetching
 const structureCache = new Map();
@@ -80,14 +85,31 @@ function loadWorld() {
                 return;
             }
             
+            // Restore user position and rotation if available
+            if (currentUser && worldData.users && worldData.users[currentUser]) {
+                const userData = worldData.users[currentUser];
+                if (userData.position) {
+                    view.x = userData.position[0];
+                    view.y = userData.position[1];
+                    view.z = userData.position[2];
+                    console.log(`Restored user position: [${userData.position[0]}, ${userData.position[1]}, ${userData.position[2]}]`);
+                }
+                if (userData.rotation) {
+                    view.forward = userData.rotation.forward || view.forward;
+                    view.right = userData.rotation.right || view.right;
+                    view.up = userData.rotation.up || view.up;
+                    console.log(`Restored user rotation`);
+                }
+            }
+            
             // Clear existing data
             points3D = [];
             edges = [];
             
             const loadPromises = [];
             
-            // Load each structure in the world
-            for (const [worldPos, structureName] of Object.entries(worldData)) {
+            // Load each structure in world
+            for (const [worldPos, structureName] of Object.entries(worldData.structures || {})) {
                 if (!structureCache.has(structureName)) {
                     loadPromises.push(
                         fetch(`/api/structure/${structureName}`)
@@ -104,9 +126,9 @@ function loadWorld() {
                 }
             }
             
-            // After all structures are loaded, build the world
+            // After all structures are loaded, build world
             Promise.all(loadPromises).then(() => {
-                buildWorld(worldData);
+                buildWorld(worldData.structures || {});
                 render();
             });
         })
@@ -150,6 +172,61 @@ function buildWorld(worldData) {
         }
         
         pointOffset += structureData.points.length;
+    }
+}
+
+function loadUser() {
+    fetch('/api/user')
+        .then(res => {
+            if (!res.ok) {
+                throw new Error('Not logged in');
+            }
+            return res.json();
+        })
+        .then(userData => {
+            currentUser = userData.username;
+            userDisplay.textContent = currentUser;
+            console.log(`User logged in: ${currentUser}`);
+        })
+        .catch(error => {
+            console.error('Error loading user:', error);
+            userDisplay.textContent = 'Error';
+            // Redirect to login if not authenticated
+            if (error.message === 'Not logged in') {
+                window.location.href = '/login';
+            }
+        });
+}
+
+function updateUserPosition() {
+    if (!currentUser) return;
+    
+    try {
+        fetch('/api/update_user_position', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                position: [view.x, view.y, view.z],
+                rotation: {
+                    forward: view.forward,
+                    right: view.right,
+                    up: view.up
+                }
+            })
+        })
+        .then(res => res.json())
+        .then(result => {
+            if (!result.success) {
+                console.error('Failed to update user position:', result.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error updating user position:', error);
+        });
+    } catch (error) {
+        console.error('Error updating user position:', error);
     }
 }
 
@@ -304,9 +381,6 @@ function rebuildWorld() {
         pointOffset += structureData.points.length;
     }
 }
-
-// Load the world on start
-loadWorld();
 
 // ------------------------------------------------
 // Position and rotation display
@@ -789,6 +863,22 @@ window.addEventListener('keyup',e=>{
 updateVisibilityDisplay();
 updateInteractiveDisplay();
 updateGravityDisplay();
+
+// Load world and user on start
+loadUser();
+loadWorld();
+
+// Logout button event listener
+logoutButton.addEventListener('click', () => {
+    window.location.href = '/logout';
+});
+
+// Save user position when leaving the site
+window.addEventListener('beforeunload', () => {
+    if (currentUser) {
+        updateUserPosition();
+    }
+});
 
 // Mouse event handlers for interactive mode
 document.addEventListener('pointerlockchange', () => {
@@ -1419,7 +1509,12 @@ let lastTime = performance.now();
 function updateCamera(time){
     const deltaTime = (time - lastTime)/1000;
     lastTime = time;
-
+    
+    // Update user position every 5 seconds
+    if (Math.floor(time / 5000) !== Math.floor(lastTime / 5000)) {
+        updateUserPosition();
+    }
+    
     // Apply Alt modifier for both movement and rotation
     let speedMultiplier = keys['AltLeft'] || keys['AltRight'] ? 10 : 1;
 

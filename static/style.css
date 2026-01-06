@@ -75,16 +75,54 @@ input[type="color"]:hover {
     min-width: 150px;
 }
 
-.position-info, .rotation-info {
+.user-info, .position-info, .rotation-info {
     display: flex;
     flex-direction: column;
     gap: 5px;
 }
 
-.position-text, .rotation-text {
+.user-text, .position-text, .rotation-text {
     font-size: 14px;
     color: #333;
     font-weight: 500;
+}
+
+.user-values {
+    font-size: 14px;
+    color: #666;
+    font-weight: 600;
+    background: linear-gradient(45deg, #667eea, #764ba2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: rgba(102, 126, 234, 0.1);
+}
+
+.logout-button {
+    margin-top: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: white;
+    background: linear-gradient(45deg, #f44336, #e91e63);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(244, 67, 54, 0.2);
+}
+
+.logout-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(244, 67, 54, 0.3);
+    background: linear-gradient(45deg, #e91e63, #f44336);
+}
+
+.logout-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(244, 67, 54, 0.2);
 }
 
 .position-values {

@@ -1,10 +1,15 @@
-from flask import Flask, render_template, jsonify, send_from_directory, request
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 import json
 import os
 import atexit
 from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import timedelta
 
 app = Flask(__name__)
+
+# Configure session
+app.secret_key = 'your-secret-key-change-this-in-production'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
 # In-memory cache for world data
 world_cache = None
@@ -13,11 +18,25 @@ def load_world_from_file():
     """Load world data from world.json file"""
     try:
         with open('world.json', 'r') as f:
-            return json.load(f)
+            world_data = json.load(f)
+            # Convert old format to new format if needed
+            if 'structures' not in world_data:
+                world_data = {
+                    'users': {},
+                    'structures': world_data
+                }
+            return world_data
     except FileNotFoundError:
-        return None
+        # Return empty world with new format
+        return {
+            'users': {},
+            'structures': {}
+        }
     except json.JSONDecodeError:
-        return None
+        return {
+            'users': {},
+            'structures': {}
+        }
 
 def save_world_to_file():
     """Save current world state to world.json file"""
@@ -36,7 +55,81 @@ def save_world_to_file():
 
 @app.route('/')
 def index():
+    # Check if user is logged in
+    if 'username' not in session:
+        return redirect(url_for('login'))
     return render_template('index.html')
+
+@app.route('/login')
+def login():
+    return render_template('login.html')
+
+@app.route('/login', methods=['POST'])
+def do_login():
+    username = request.form.get('username', '').strip()
+    
+    # Basic validation
+    if not username or len(username) < 1 or len(username) > 50:
+        return render_template('login.html', error='Please enter a valid username (1-50 characters)')
+    
+    # Store username in session
+    session['username'] = username
+    session.permanent = True
+    
+    return redirect(url_for('index'))
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+@app.route('/api/user')
+def get_user():
+    if 'username' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    return jsonify({'username': session['username']})
+
+@app.route('/api/update_user_position', methods=['POST'])
+def update_user_position():
+    global world_cache
+    
+    if 'username' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    # Ensure world is loaded
+    if world_cache is None:
+        world_cache = load_world_from_file()
+        if world_cache is None:
+            return jsonify({'error': 'World not loaded'}), 500
+    
+    try:
+        data = request.get_json()
+        if not data or 'position' not in data or 'rotation' not in data:
+            return jsonify({'error': 'Missing position or rotation data'}), 400
+        
+        position = data['position']
+        rotation = data['rotation']
+        
+        # Validate position format (should be [x, y, z])
+        if not isinstance(position, list) or len(position) != 3:
+            return jsonify({'error': 'Invalid position format'}), 400
+        
+        # Validate rotation format (should be [forward, right, up] arrays)
+        if not isinstance(rotation, dict) or 'forward' not in rotation or 'right' not in rotation or 'up' not in rotation:
+            return jsonify({'error': 'Invalid rotation format'}), 400
+        
+        # Update user data in world cache
+        username = session['username']
+        if username not in world_cache['users']:
+            world_cache['users'][username] = {}
+        
+        world_cache['users'][username]['position'] = position
+        world_cache['users'][username]['rotation'] = rotation
+        
+        return jsonify({'success': True, 'position': position, 'rotation': rotation})
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to update user position: {str(e)}'}), 500
 
 @app.route('/api/world')
 def get_world():
@@ -89,7 +182,7 @@ def add_structure():
         pos_key = f"{position[0]},{position[1]},{position[2]}"
         
         # Add structure to world cache
-        world_cache[pos_key] = structure_name
+        world_cache['structures'][pos_key] = structure_name
         
         return jsonify({'success': True, 'position': position, 'structure': structure_name})
         
@@ -121,7 +214,7 @@ def remove_structure():
         pos_key = f"{position[0]},{position[1]},{position[2]}"
         
         # Remove structure from world cache
-        removed_structure = world_cache.pop(pos_key, None)
+        removed_structure = world_cache['structures'].pop(pos_key, None)
         
         if removed_structure is None:
             return jsonify({'error': 'No structure found at this position'}), 404
