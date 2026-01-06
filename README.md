@@ -35,7 +35,9 @@ This is a little project which experiments with the rendering of and interaction
 - **Mode Display**: Current camera mode with color coding (NORMAL/ALIGNED/INTERACTIVE)
 - **Dynamic World Editing**: Real-time structure addition and removal
 - **Optimized Storage**: Efficient world structure map with type caching
-- More to come...
+- **Server-Side Persistence**: World state automatically saved every 10 minutes
+- **Shutdown Protection**: World data saved on server shutdown to prevent data loss
+- **Memory Caching**: High-performance in-memory world state with periodic persistence
 
 ## Technical Architecture
 
@@ -43,6 +45,8 @@ This is a little project which experiments with the rendering of and interaction
 - **Backend**: Flask server serving static assets and JSON data
 - **Rendering**: Custom 3D projection engine without external dependencies
 - **Data Format**: JSON-based world and structure definitions
+- **Persistence**: APScheduler for periodic world saving and atexit for shutdown protection
+- **Caching**: In-memory world state with JSON file persistence
 
 ## Controls Reference
 

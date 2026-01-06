@@ -4,8 +4,6 @@ import os
 import atexit
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# Hi
-
 app = Flask(__name__)
 
 # In-memory cache for world data
