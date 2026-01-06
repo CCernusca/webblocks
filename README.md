@@ -6,7 +6,7 @@ This is a little project which experiments with the rendering of and interaction
 
 ## Showcase
 
-![Screenshot of the current state of the project](assets/showcase/showcase-interactive.png)
+![Screenshot of the current state of the project](assets/showcase/showcase-synchronisation.png)
 
 ## Features
 
@@ -34,10 +34,39 @@ This is a little project which experiments with the rendering of and interaction
 - **Gravity Toggle**: G key for downward force with ground detection
 - **Mode Display**: Current camera mode with color coding (NORMAL/ALIGNED/INTERACTIVE)
 - **Dynamic World Editing**: Real-time structure addition and removal
+- **Multi-user Building**: Collaborative structure placement and editing
 - **Optimized Storage**: Efficient world structure map with type caching
 - **Server-Side Persistence**: World state automatically saved every 10 minutes
 - **Shutdown Protection**: World data saved on server shutdown to prevent data loss
 - **Memory Caching**: High-performance in-memory world state with periodic persistence
+
+### Multiplayer Features
+
+- **User Authentication**: Login system with session management
+- **Real-time World State Sync**: Structures and user data (position, rotation) synchronized every 100ms
+- **Player Rendering**: Other users shown as red dots with direction indicators
+- **Distance Scaling**: Player indicators scale naturally with distance
+- **Live Updates**: See other users move and interact in real-time
+
+### User Features
+
+- **Position Persistence**: User position and rotation saved on exit
+- **Automatic Restore**: Return to previous location on login
+- **User Data Reset**: R key to reset position, rotation, and modes
+- **Session Management**: Secure user sessions with 24-hour lifetime
+
+### Physics & Environment
+
+- **Structure Collision**: Prevent movement through placed structures (Uses rectangular bounding boxes)
+- **Toggle Controls**: G key to enable/disable gravity
+
+### Visual Features
+
+- **Customizable Colors**: Point and edge color pickers
+- **Visibility Toggles**: Show/hide points and edges independently
+- **Crosshair**: Interactive mode targeting display
+- **Rotation Indicator**: Visual representation of viewing direction
+- **Multi-user Indicators**: Distance-scaled player markers with usernames
 
 ## Technical Architecture
 
@@ -63,15 +92,19 @@ This is a little project which experiments with the rendering of and interaction
 
 ### Interactive Mode
 
-- **C**: Toggle first-person camera mode
-- **Mouse**: Look around when pointer locked
+- **Disables default movement and rotation**
+- **C**: Toggle interactive mode
+- **Mouse**: Pitch and yaw rotation
+- **WASD**: Movement (forward/back/left/right)
+- **Space/Shift**: Movement (up/down)
 - **Left Click**: Remove targeted structure
 - **Right Click**: Place selected structure
 
 ### Special Functions
 
-- **V**: Toggle aligned mode (grid snapping)
+- **V**: Hold for aligned mode (grid snapping)
 - **G**: Toggle gravity
+- **R**: Reset user data (position, rotation, and modes)
 - **M/N**: Toggle points/edges visibility
 - **1-9, 0**: Select structure type for placement
 - **Alt**: Speed multiplier (2x movement and rotation)
