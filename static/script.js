@@ -3,6 +3,7 @@ const ctx = canvas.getContext('2d');
 const pointColorPicker = document.getElementById('point-color');
 const strokeColorPicker = document.getElementById('stroke-color');
 const userDisplay = document.getElementById('user-display');
+const logoutButton = document.getElementById('logout-button');
 
 let points3D = [];
 let edges = [];
@@ -335,6 +336,11 @@ function rebuildWorld() {
 // Load the world and user on start
 loadUser();
 loadWorld();
+
+// Logout button event listener
+logoutButton.addEventListener('click', () => {
+    window.location.href = '/logout';
+});
 
 // ------------------------------------------------
 // Position and rotation display

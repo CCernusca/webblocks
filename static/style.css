@@ -100,6 +100,31 @@ input[type="color"]:hover {
     background-color: rgba(102, 126, 234, 0.1);
 }
 
+.logout-button {
+    margin-top: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: white;
+    background: linear-gradient(45deg, #f44336, #e91e63);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(244, 67, 54, 0.2);
+}
+
+.logout-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(244, 67, 54, 0.3);
+    background: linear-gradient(45deg, #e91e63, #f44336);
+}
+
+.logout-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(244, 67, 54, 0.2);
+}
+
 .position-values {
     font-size: 12px;
     color: #666;
