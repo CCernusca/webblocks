@@ -13,6 +13,9 @@ let strokeColor = '#00ff00';
 // User session
 let currentUser = null;
 
+// Other players data - stores positions and rotations of other users
+const otherPlayers = new Map(); // username -> {position, rotation}
+
 // Structure cache to avoid re-fetching
 const structureCache = new Map();
 
@@ -228,6 +231,138 @@ function updateUserPosition() {
     } catch (error) {
         console.error('Error updating user position:', error);
     }
+}
+
+function resetUserData() {
+    console.log('Resetting user data...');
+    
+    // Reset position to origin
+    view.x = 0;
+    view.y = 0;
+    view.z = 0;
+    
+    // Reset rotation to default (looking forward)
+    view.forward = [0, 0, 1];
+    view.right = [1, 0, 0];
+    view.up = [0, 1, 0];
+    
+    // Reset modes
+    interactiveMode = false;
+    altPressed = false;
+    gravityEnabled = false;
+    
+    // Reset selected structure
+    selectedStructure = "cube";
+    
+    // Exit pointer lock if in interactive mode
+    if (document.pointerLockElement === canvas) {
+        document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
+        document.exitPointerLock();
+    }
+    
+    // Update displays
+    updateInteractiveDisplay();
+    updateGravityDisplay();
+    
+    // Update position immediately on server
+    updateUserPosition();
+    
+    // Re-render
+    render();
+    
+    console.log('User data reset complete');
+}
+
+function syncWorldState() {
+    fetch('/api/world')
+        .then(res => res.json())
+        .then(worldData => {
+            if (worldData.error) {
+                console.error('Error syncing world state:', worldData.error);
+                return;
+            }
+            
+            // Always sync other users' positions and rotations
+            if (worldData.users && currentUser) {
+                // Clear previous other players data
+                otherPlayers.clear();
+                
+                for (const [username, userData] of Object.entries(worldData.users)) {
+                    if (username !== currentUser) {
+                        // Store other user data for rendering
+                        otherPlayers.set(username, {
+                            position: userData.position,
+                            rotation: userData.rotation
+                        });
+                        console.log(`Other user ${username} at position [${userData.position[0]}, ${userData.position[1]}, ${userData.position[2]}]`);
+                    }
+                }
+                
+                // Always render to update player positions
+                render();
+            }
+            
+            // Check if structures have changed
+            const currentStructures = {};
+            for (const [posKey, structureName] of worldStructureMap) {
+                currentStructures[posKey] = structureName;
+            }
+            
+            const serverStructures = worldData.structures || {};
+            let structuresChanged = false;
+            
+            // Check for added/modified structures
+            for (const [posKey, structureName] of Object.entries(serverStructures)) {
+                if (currentStructures[posKey] !== structureName) {
+                    structuresChanged = true;
+                    break;
+                }
+            }
+            
+            // Check for removed structures
+            for (const [posKey, structureName] of Object.entries(currentStructures)) {
+                if (!serverStructures[posKey]) {
+                    structuresChanged = true;
+                    break;
+                }
+            }
+            
+            // If structures changed, rebuild world
+            if (structuresChanged) {
+                console.log('World state changed, rebuilding...');
+                
+                // Clear existing data
+                points3D = [];
+                edges = [];
+                
+                const loadPromises = [];
+                
+                // Load each structure in world
+                for (const [worldPos, structureName] of Object.entries(serverStructures)) {
+                    if (!structureCache.has(structureName)) {
+                        loadPromises.push(
+                            fetch(`/api/structure/${structureName}`)
+                                .then(res => res.json())
+                                .then(structureData => {
+                                    if (structureData.error) {
+                                        console.error(`Error loading structure "${structureName}":`, structureData.error);
+                                        return;
+                                    }
+                                    structureCache.set(structureName, structureData);
+                                })
+                                .catch(err => console.error(`Failed to fetch structure "${structureName}":`, err))
+                        );
+                    }
+                }
+                
+                // After all structures are loaded, build world
+                Promise.all(loadPromises).then(() => {
+                    buildWorld(serverStructures);
+                    render();
+                });
+            }
+        })
+        .catch(err => console.error('Failed to sync world state:', err));
 }
 
 // Add a structure at a specific world position
@@ -702,6 +837,92 @@ function drawCrosshair() {
     ctx.stroke();
 }
 
+// Render other players as red dots with direction lines
+function renderOtherPlayers() {
+    ctx.save();
+    
+    for (const [username, playerData] of otherPlayers) {
+        const playerPos = playerData.position;
+        const playerRot = playerData.rotation;
+        
+        // Transform player position to camera space
+        const cx = playerPos[0] - view.x;
+        const cy = playerPos[1] - view.y;
+        const cz = playerPos[2] - view.z;
+        
+        const cameraSpace = [
+            cx * view.right[0] + cy * view.right[1] + cz * view.right[2],
+            cx * view.up[0] + cy * view.up[1] + cz * view.up[2],
+            cx * view.forward[0] + cy * view.forward[1] + cz * view.forward[2]
+        ];
+        
+        // Project to screen
+        const projected = projectCameraSpace(cameraSpace);
+        if (projected.z <= 0) continue; // Skip if behind camera
+        
+        const screenPos = screen(projected.ndc);
+        if (!screenPos || !isFinite(screenPos[0]) || !isFinite(screenPos[1])) continue;
+        
+        // Draw red dot for player (scaled by distance)
+        const distance = Math.sqrt(cameraSpace[0]**2 + cameraSpace[1]**2 + cameraSpace[2]**2);
+        const baseSize = 5;
+        const scaledSize = Math.max(2, baseSize * (100 / Math.max(distance, 50))); // Scale between 2-10 pixels
+        
+        ctx.fillStyle = '#ff0000';
+        ctx.beginPath();
+        ctx.arc(screenPos[0], screenPos[1], scaledSize, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw direction line (scaled by distance)
+        if (playerRot && playerRot.forward) {
+            const forward = playerRot.forward;
+            const baseLineLength = 30;
+            const scaledLineLength = baseLineLength * (100 / Math.max(distance, 50));
+            
+            // Calculate end point of direction line in world space
+            const worldEnd = [
+                playerPos[0] + forward[0] * scaledLineLength * 0.5,
+                playerPos[1] + forward[1] * scaledLineLength * 0.5,
+                playerPos[2] + forward[2] * scaledLineLength * 0.5
+            ];
+            
+            // Transform end point to camera space
+            const ecx = worldEnd[0] - view.x;
+            const ecy = worldEnd[1] - view.y;
+            const ecz = worldEnd[2] - view.z;
+            
+            const endCameraSpace = [
+                ecx * view.right[0] + ecy * view.right[1] + ecz * view.right[2],
+                ecx * view.up[0] + ecy * view.up[1] + ecz * view.up[2],
+                ecx * view.forward[0] + ecy * view.forward[1] + ecz * view.forward[2]
+            ];
+            
+            // Project end point to screen
+            const endProjected = projectCameraSpace(endCameraSpace);
+            if (endProjected.z <= 0) continue; // Skip if behind camera
+            
+            const endScreenPos = screen(endProjected.ndc);
+            if (!endScreenPos || !isFinite(endScreenPos[0]) || !isFinite(endScreenPos[1])) continue;
+            
+            // Draw direction line with scaled width
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = Math.max(1, 2 * (100 / Math.max(distance, 50)));
+            ctx.beginPath();
+            ctx.moveTo(screenPos[0], screenPos[1]);
+            ctx.lineTo(endScreenPos[0], endScreenPos[1]);
+            ctx.stroke();
+        }
+        
+        // Draw username above player (scaled by distance)
+        ctx.fillStyle = '#ff0000';
+        const fontSize = Math.max(8, 12 * (100 / Math.max(distance, 50)));
+        ctx.font = `${fontSize}px Arial`;
+        ctx.fillText(username, screenPos[0] + scaledSize + 2, screenPos[1] - scaledSize - 2);
+    }
+    
+    ctx.restore();
+}
+
 function render() {
     if (!points3D || points3D.length===0) return;
 
@@ -756,6 +977,9 @@ function render() {
             ctx.fill();
         }
     }
+    
+    // Render other players
+    renderOtherPlayers();
     
     // Draw crosshair in interactive mode
     if (interactiveMode) {
@@ -836,10 +1060,15 @@ window.addEventListener('keydown',e=>{
         toggleGravity();
     }
     
+    // Handle user data reset
+    if(e.code === 'KeyR') {
+        resetUserData();
+    }
+    
     // Prevent default browser behaviors for game controls
     if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 
         'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 
-        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'KeyG', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
+        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'KeyG', 'KeyR', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
         'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'].includes(e.code)) {
         e.preventDefault();
     }
@@ -853,7 +1082,7 @@ window.addEventListener('keyup',e=>{
     // Prevent default browser behaviors for game controls
     if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 
         'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'AltLeft', 'AltRight', 
-        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'KeyG', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
+        'KeyM', 'KeyN', 'KeyC', 'KeyV', 'Escape', 'KeyG', 'KeyR', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 
         'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'].includes(e.code)) {
         e.preventDefault();
     }
@@ -1506,13 +1735,24 @@ function rotateByGrid(pitch, yaw, roll) {
 
 // Update movement & rotation
 let lastTime = performance.now();
+let lastUserPositionUpdate = performance.now();
+let lastWorldSyncUpdate = performance.now();
+const SYNC_INTERVAL = 100;
+
 function updateCamera(time){
     const deltaTime = (time - lastTime)/1000;
     lastTime = time;
     
-    // Update user position every 5 seconds
-    if (Math.floor(time / 5000) !== Math.floor(lastTime / 5000)) {
+    // Update user position every sync interval
+    if (Math.floor(time / SYNC_INTERVAL) !== Math.floor(lastUserPositionUpdate / SYNC_INTERVAL)) {
         updateUserPosition();
+        lastUserPositionUpdate = time;
+    }
+    
+    // Sync world state every sync interval
+    if (Math.floor(time / SYNC_INTERVAL) !== Math.floor(lastWorldSyncUpdate / SYNC_INTERVAL)) {
+        syncWorldState();
+        lastWorldSyncUpdate = time;
     }
     
     // Apply Alt modifier for both movement and rotation
