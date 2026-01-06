@@ -2,11 +2,15 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const pointColorPicker = document.getElementById('point-color');
 const strokeColorPicker = document.getElementById('stroke-color');
+const userDisplay = document.getElementById('user-display');
 
 let points3D = [];
 let edges = [];
 let pointColor = '#0000ff';
 let strokeColor = '#00ff00';
+
+// User session
+let currentUser = null;
 
 // Structure cache to avoid re-fetching
 const structureCache = new Map();
@@ -151,6 +155,29 @@ function buildWorld(worldData) {
         
         pointOffset += structureData.points.length;
     }
+}
+
+function loadUser() {
+    fetch('/api/user')
+        .then(res => {
+            if (!res.ok) {
+                throw new Error('Not logged in');
+            }
+            return res.json();
+        })
+        .then(userData => {
+            currentUser = userData.username;
+            userDisplay.textContent = currentUser;
+            console.log(`User logged in: ${currentUser}`);
+        })
+        .catch(error => {
+            console.error('Error loading user:', error);
+            userDisplay.textContent = 'Error';
+            // Redirect to login if not authenticated
+            if (error.message === 'Not logged in') {
+                window.location.href = '/login';
+            }
+        });
 }
 
 // Add a structure at a specific world position
@@ -305,7 +332,8 @@ function rebuildWorld() {
     }
 }
 
-// Load the world on start
+// Load the world and user on start
+loadUser();
 loadWorld();
 
 // ------------------------------------------------

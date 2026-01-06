@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebBlocks - Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .login-container {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            min-width: 350px;
+            backdrop-filter: blur(10px);
+        }
+
+        .login-title {
+            font-size: 2.5em;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 10px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .login-subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .login-input {
+            width: 100%;
+            padding: 15px 20px;
+            font-size: 16px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            background: white;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+
+        .login-input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .login-input::placeholder {
+            color: #aaa;
+        }
+
+        .login-button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .login-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .login-button:active {
+            transform: translateY(0);
+        }
+
+        .error-message {
+            color: #e74c3c;
+            background: #fdf2f2;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #f5c6cb;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .login-footer {
+            margin-top: 30px;
+            color: #888;
+            font-size: 0.9em;
+        }
+
+        .cube-decoration {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            transform: rotate(45deg);
+        }
+
+        .cube-1 { top: 20px; right: 20px; }
+        .cube-2 { bottom: 20px; left: 20px; }
+        .cube-3 { top: 50%; right: 10px; }
+        .cube-4 { bottom: 40%; left: 10px; }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="cube-decoration cube-1"></div>
+        <div class="cube-decoration cube-2"></div>
+        <div class="cube-decoration cube-3"></div>
+        <div class="cube-decoration cube-4"></div>
+        
+        <h1 class="login-title">WebBlocks</h1>
+        <p class="login-subtitle">Enter your username to continue</p>
+        
+        {% if error %}
+        <div class="error-message">{{ error }}</div>
+        {% endif %}
+        
+        <form method="POST" action="/login" class="login-form">
+            <div class="input-group">
+                <input 
+                    type="text" 
+                    name="username" 
+                    class="login-input" 
+                    placeholder="Enter your username"
+                    required
+                    maxlength="50"
+                    autofocus
+                >
+            </div>
+            
+            <button type="submit" class="login-button">
+                Enter World
+            </button>
+        </form>
+        
+        <div class="login-footer">
+            3D World Building Experience
+        </div>
+    </div>
+</body>
+</html>

@@ -1,10 +1,15 @@
-from flask import Flask, render_template, jsonify, send_from_directory, request
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 import json
 import os
 import atexit
 from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import timedelta
 
 app = Flask(__name__)
+
+# Configure session
+app.secret_key = 'your-secret-key-change-this-in-production'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
 # In-memory cache for world data
 world_cache = None
@@ -36,7 +41,39 @@ def save_world_to_file():
 
 @app.route('/')
 def index():
+    # Check if user is logged in
+    if 'username' not in session:
+        return redirect(url_for('login'))
     return render_template('index.html')
+
+@app.route('/login')
+def login():
+    return render_template('login.html')
+
+@app.route('/login', methods=['POST'])
+def do_login():
+    username = request.form.get('username', '').strip()
+    
+    # Basic validation
+    if not username or len(username) < 1 or len(username) > 50:
+        return render_template('login.html', error='Please enter a valid username (1-50 characters)')
+    
+    # Store username in session
+    session['username'] = username
+    session.permanent = True
+    
+    return redirect(url_for('index'))
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+@app.route('/api/user')
+def get_user():
+    if 'username' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    return jsonify({'username': session['username']})
 
 @app.route('/api/world')
 def get_world():
