@@ -154,7 +154,7 @@ function buildWorld(worldData) {
 }
 
 // Add a structure at a specific world position
-function addStructure(worldPos, structureName) {
+async function addStructure(worldPos, structureName) {
     const posKey = `${worldPos.x},${worldPos.y},${worldPos.z}`;
     
     // Check if position is already occupied
@@ -170,35 +170,60 @@ function addStructure(worldPos, structureName) {
         return false;
     }
     
-    // Store structure in world map
-    worldStructureMap.set(posKey, structureName);
-    
-    // Calculate point offset (current end of points array)
-    const pointOffset = points3D.length;
-    
-    // Add points with world position offset
-    for (const point of structureData.points) {
-        points3D.push([
-            point[0] + (worldPos.x * 100),
-            point[1] + (worldPos.y * 100),
-            point[2] + (worldPos.z * 100)
-        ]);
+    try {
+        // Call API to add structure on server
+        const response = await fetch('/api/add_structure', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                position: [worldPos.x, worldPos.y, worldPos.z],
+                structure: structureName
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok || !result.success) {
+            console.error('Failed to add structure on server:', result.error);
+            return false;
+        }
+        
+        // Store structure in local world map
+        worldStructureMap.set(posKey, structureName);
+        
+        // Calculate point offset (current end of points array)
+        const pointOffset = points3D.length;
+        
+        // Add points with world position offset
+        for (const point of structureData.points) {
+            points3D.push([
+                point[0] + (worldPos.x * 100),
+                point[1] + (worldPos.y * 100),
+                point[2] + (worldPos.z * 100)
+            ]);
+        }
+        
+        // Add edges with point offset
+        for (const edge of structureData.edges) {
+            edges.push([
+                edge[0] + pointOffset,
+                edge[1] + pointOffset
+            ]);
+        }
+        
+        console.log(`Added ${structureName} at position ${posKey}`);
+        return true;
+        
+    } catch (error) {
+        console.error('Error adding structure:', error);
+        return false;
     }
-    
-    // Add edges with point offset
-    for (const edge of structureData.edges) {
-        edges.push([
-            edge[0] + pointOffset,
-            edge[1] + pointOffset
-        ]);
-    }
-    
-    console.log(`Added ${structureName} at position ${posKey}`);
-    return true;
 }
 
 // Remove a structure at a specific world position
-function removeStructure(worldPos) {
+async function removeStructure(worldPos) {
     const posKey = `${worldPos.x},${worldPos.y},${worldPos.z}`;
     
     // Check if position has a structure
@@ -208,15 +233,39 @@ function removeStructure(worldPos) {
         return false;
     }
     
-    // Remove from world map
-    worldStructureMap.delete(posKey);
-    
-    // Rebuild the entire world (simpler than trying to remove specific points/edges)
-    // This ensures proper point offset handling
-    rebuildWorld();
-    
-    console.log(`Removed ${structureName} from position ${posKey}`);
-    return true;
+    try {
+        // Call API to remove structure on server
+        const response = await fetch('/api/remove_structure', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                position: [worldPos.x, worldPos.y, worldPos.z]
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok || !result.success) {
+            console.error('Failed to remove structure on server:', result.error);
+            return false;
+        }
+        
+        // Remove from local world map
+        worldStructureMap.delete(posKey);
+        
+        // Rebuild the entire world (simpler than trying to remove specific points/edges)
+        // This ensures proper point offset handling
+        rebuildWorld();
+        
+        console.log(`Removed ${structureName} from position ${posKey}`);
+        return true;
+        
+    } catch (error) {
+        console.error('Error removing structure:', error);
+        return false;
+    }
 }
 
 // Rebuild the world from the worldStructureMap
@@ -802,7 +851,7 @@ document.addEventListener('mousedown', (e) => {
 });
 
 // Perform raycast and remove first intersected structure
-function performRaycast() {
+async function performRaycast() {
     const rayOrigin = [view.x, view.y, view.z];
     const rayDirection = normalize(view.forward);
     
@@ -834,14 +883,16 @@ function performRaycast() {
     
     // Remove the closest structure if found
     if (closestStructure) {
-        removeStructure(closestStructure);
-        render();
-        console.log(`Removed structure at ${closestStructure.x},${closestStructure.y},${closestStructure.z}`);
+        const success = await removeStructure(closestStructure);
+        if (success) {
+            render();
+            console.log(`Removed structure at ${closestStructure.x},${closestStructure.y},${closestStructure.z}`);
+        }
     }
 }
 
 // Perform raycast and place structure on hit surface
-function performRaycastPlace() {
+async function performRaycastPlace() {
     const rayOrigin = [view.x, view.y, view.z];
     const rayDirection = normalize(view.forward);
     
@@ -877,7 +928,7 @@ function performRaycastPlace() {
     if (closestStructure && closestIntersection) {
         const placePosition = calculatePlacePosition(closestIntersection);
         if (placePosition) {
-            const success = addStructure(placePosition, selectedStructure);
+            const success = await addStructure(placePosition, selectedStructure);
             if (success) {
                 render();
                 console.log(`Placed ${selectedStructure} at ${placePosition.x},${placePosition.y},${placePosition.z}`);
