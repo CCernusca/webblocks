@@ -85,14 +85,31 @@ function loadWorld() {
                 return;
             }
             
+            // Restore user position and rotation if available
+            if (currentUser && worldData.users && worldData.users[currentUser]) {
+                const userData = worldData.users[currentUser];
+                if (userData.position) {
+                    view.x = userData.position[0];
+                    view.y = userData.position[1];
+                    view.z = userData.position[2];
+                    console.log(`Restored user position: [${userData.position[0]}, ${userData.position[1]}, ${userData.position[2]}]`);
+                }
+                if (userData.rotation) {
+                    view.forward = userData.rotation.forward || view.forward;
+                    view.right = userData.rotation.right || view.right;
+                    view.up = userData.rotation.up || view.up;
+                    console.log(`Restored user rotation`);
+                }
+            }
+            
             // Clear existing data
             points3D = [];
             edges = [];
             
             const loadPromises = [];
             
-            // Load each structure in the world
-            for (const [worldPos, structureName] of Object.entries(worldData)) {
+            // Load each structure in world
+            for (const [worldPos, structureName] of Object.entries(worldData.structures || {})) {
                 if (!structureCache.has(structureName)) {
                     loadPromises.push(
                         fetch(`/api/structure/${structureName}`)
@@ -109,9 +126,9 @@ function loadWorld() {
                 }
             }
             
-            // After all structures are loaded, build the world
+            // After all structures are loaded, build world
             Promise.all(loadPromises).then(() => {
-                buildWorld(worldData);
+                buildWorld(worldData.structures || {});
                 render();
             });
         })
@@ -179,6 +196,38 @@ function loadUser() {
                 window.location.href = '/login';
             }
         });
+}
+
+function updateUserPosition() {
+    if (!currentUser) return;
+    
+    try {
+        fetch('/api/update_user_position', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                position: [view.x, view.y, view.z],
+                rotation: {
+                    forward: view.forward,
+                    right: view.right,
+                    up: view.up
+                }
+            })
+        })
+        .then(res => res.json())
+        .then(result => {
+            if (!result.success) {
+                console.error('Failed to update user position:', result.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error updating user position:', error);
+        });
+    } catch (error) {
+        console.error('Error updating user position:', error);
+    }
 }
 
 // Add a structure at a specific world position
@@ -332,15 +381,6 @@ function rebuildWorld() {
         pointOffset += structureData.points.length;
     }
 }
-
-// Load the world and user on start
-loadUser();
-loadWorld();
-
-// Logout button event listener
-logoutButton.addEventListener('click', () => {
-    window.location.href = '/logout';
-});
 
 // ------------------------------------------------
 // Position and rotation display
@@ -823,6 +863,22 @@ window.addEventListener('keyup',e=>{
 updateVisibilityDisplay();
 updateInteractiveDisplay();
 updateGravityDisplay();
+
+// Load world and user on start
+loadUser();
+loadWorld();
+
+// Logout button event listener
+logoutButton.addEventListener('click', () => {
+    window.location.href = '/logout';
+});
+
+// Save user position when leaving the site
+window.addEventListener('beforeunload', () => {
+    if (currentUser) {
+        updateUserPosition();
+    }
+});
 
 // Mouse event handlers for interactive mode
 document.addEventListener('pointerlockchange', () => {
@@ -1453,7 +1509,12 @@ let lastTime = performance.now();
 function updateCamera(time){
     const deltaTime = (time - lastTime)/1000;
     lastTime = time;
-
+    
+    // Update user position every 5 seconds
+    if (Math.floor(time / 5000) !== Math.floor(lastTime / 5000)) {
+        updateUserPosition();
+    }
+    
     // Apply Alt modifier for both movement and rotation
     let speedMultiplier = keys['AltLeft'] || keys['AltRight'] ? 10 : 1;
 
